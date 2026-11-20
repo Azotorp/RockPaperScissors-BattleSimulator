@@ -1,7 +1,7 @@
 (async () => {
   'use strict';
 
-  if (!window.PIXI || !window.p2) throw new Error('PixiJS and p2.js must load before main.js');
+  if (!window.PIXI) throw new Error('PixiJS must load before main.js');
 
   const { Application, Container, Graphics, Sprite } = PIXI;
   const $ = id => document.getElementById(id);
@@ -79,10 +79,10 @@
   const sightGraphics = new Graphics(), hearingGraphics = new Graphics();
   visionLayer.addChild(hearingGraphics, sightGraphics);
 
-  const world = new p2.World({ islandSplit:false, gravity: [0, 0], broadphase: new p2.SAPBroadphase() });
+  const world = window.p2 && new p2.World({ islandSplit:false, gravity: [0, 0], broadphase: new p2.SAPBroadphase() });
   // All species now participate in physical p2 contacts. Conversion still
   // follows the game rules and swept collision tests prevent fast misses.
-  world.solver.iterations = 3;
+  if (world) world.solver.iterations = 3;
   const CONTACT_GROUP = {
     rock: 1, paper: 2, scissors: 4, lizard: 8, spock: 16,
     human: 32, zombie: 64
@@ -92,11 +92,10 @@
     shape.collisionGroup = CONTACT_GROUP[type];
     shape.collisionMask = ALL_CONTACTS;
   }
-  world.defaultContactMaterial.friction = 0;
-  world.defaultContactMaterial.restitution = 0.13;
+  if (world) { world.defaultContactMaterial.friction=0; world.defaultContactMaterial.restitution=.13; }
   const physicalPairs=new Map();
   const contactKey=(a,b)=>a.sequence<b.sequence?a.sequence+','+b.sequence:b.sequence+','+a.sequence;
-  for(const eventName of ['beginContact','endContact'])world.on(eventName,e=>{
+  for(const eventName of ['beginContact','endContact'])world?.on(eventName,e=>{
     const a=e.bodyA.agent,b=e.bodyB.agent;if(!a||!b)return;
     const key=contactKey(a,b);
     if(eventName==='beginContact'){
@@ -188,20 +187,24 @@
   }
   function add(type, x, y) {
     const view = visual(type);
-    const body = new p2.Body({ mass: 1, position: [x, y], fixedRotation: true, damping: 0 });
-    const shape = new p2.Circle({ radius: RADIUS });
-    setContactFilter(shape, type);
-    // Keep the accepted surface coordinate when p2 adjusts its working vectors.
-    body.position = new Float64Array(body.position);
-    body.addShape(shape);
-    world.addBody(body);
-    const angle = Math.random() * TAU;
+    const shape = solver==='p2' ? new p2.Circle({radius:RADIUS}) : {radius:RADIUS};
+    setContactFilter(shape,type);
+    let body;
+    if (solver==='p2') {
+      body=new p2.Body({mass:1,position:[x,y],fixedRotation:true,damping:0});
+      body.position=new Float64Array([x,y]);
+      body.addShape(shape);
+      world.addBody(body);body.p2Managed=true;
+    } else {
+      body={id:nextSequence,position:[x,y],previousPosition:[x,y],velocity:[0,0],shapes:[shape]};
+    }
+    const angle = random() * TAU;
     const speed = type === 'human' ? wanderSpeed() : type === 'zombie' ? zombieSpeed() : rpsSpeed();
     body.velocity[0] = Math.cos(angle) * speed;
     body.velocity[1] = Math.sin(angle) * speed;
     const u = {
       sequence:nextSequence++,type, body, ...view, angle, scared: false, appearanceId:T.codes[type], facingOffset:T.loaded.get(T.codes[type]).facingDegrees*Math.PI/180,
-      heading: angle, wanderHeading: angle, nextWander: t + .5 + Math.random() * 3,
+      heading: angle, wanderHeading: angle, nextWander: t + .5 + random() * 3,
       immuneUntil: 0,
       // Humans start moderately rested. Panic drains energy only while running.
       stamina: staminaStart(), restingUntil: -1, restState: false
@@ -221,7 +224,7 @@
     setContactFilter(u.body.shapes[0], type);
     u.scared = false;
     u.wanderHeading = u.angle;
-    u.nextWander = t + Math.random() * 2;
+    u.nextWander = t + random() * 2;
     u.stamina = staminaStart(); u.restingUntil = -1; u.restState = false;
     resetBrain(u);updateAppearance(u);
     return true;
@@ -255,7 +258,7 @@
   const retired=[];
   function disposeRetired(deadline=Infinity){
     while(retired.length && performance.now()<deadline){
-      const u=retired.pop();world.removeBody(u.body);u.holder.destroy({children:true});
+      const u=retired.pop();if(u.body.p2Managed)world.removeBody(u.body);u.holder.destroy({children:true});
     }
   }
   function clear(defer=false){
@@ -316,7 +319,7 @@
       if(u.fearGlow)u.fearGlow.width=u.fearGlow.height=HEAD;
       const shape = u.body.shapes[0];
       shape.radius = RADIUS;
-      u.body.updateBoundingRadius(); u.body.updateMassProperties();
+      u.body.updateBoundingRadius?.(); u.body.updateMassProperties?.();
       u.body.aabbNeedsUpdate = true;
       outline(u);
       if(u.immunity)u.immunity.clear().circle(0, 0, RADIUS + 3).stroke({ color: ink.immunity, width: 2 });
@@ -438,6 +441,7 @@
         : `Outbreak active · ${resting} humans resting · ${unlimitedOutbreak() ? 'No time limit' : `survive ${Math.ceil(left)} more seconds`}`;
     }
   }
+  let solver='cpu', random=SwarmSimulation.randomStream('swarm');
   let generation=0, preparing=false, roundSeed='', lastBuildMs=0;
   function notice(text) {$('roundNotice').textContent=text;$('roundNotice').hidden=!text;}
   function reset() {
@@ -458,6 +462,8 @@
     wallThickness=Number($('wallWidth').value);
     arena=null;
     roundSeed=get(modeKey('seedMode'))==='fixed'?get(modeKey('seed')):crypto.getRandomValues(new Uint32Array(2)).join('-');
+    solver = world ? $('solver').value : 'cpu';
+    random = SwarmSimulation.randomStream(roundSeed + '/simulation');
     buildUI();
     let places;
     try{
@@ -591,10 +597,10 @@
     return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy)=>accept(q) && detect(u,dx,dy),
       boundary==='wrap'?arena:null);
   }
-  function rollTime(a,b){return (Math.min(a,b)+Math.random()*Math.abs(b-a))/1000;}
+  function rollTime(a,b){return (Math.min(a,b)+random()*Math.abs(b-a))/1000;}
   function wander(u){
     if(t>=u.nextWander){
-      u.wanderHeading=u.angle+(Math.random()-.5)*Math.PI;
+      u.wanderHeading=u.angle+(random()-.5)*Math.PI;
       u.nextWander=t+rollTime(config.wanderMin,config.wanderMax);
     }
     return u.wanderHeading;
@@ -646,7 +652,7 @@
     }
     if(u.target && (u.target!==old || !valid)){
       u.targetVersion=u.target.revision;u.trackedAt=t;
-      const [lo,hi]=outbreak?fixationLimits():[0,0];u.lockUntil=t+lo+Math.random()*(hi-lo);
+      const [lo,hi]=outbreak?fixationLimits():[0,0];u.lockUntil=t+lo+random()*(hi-lo);
     }
     if(u.target){u.searchUntil=t+(config.huntTime||0)/1000;u.idleUntil=0;}
   }
@@ -849,7 +855,15 @@
     if(impulse){units[0].body.velocity[0]=impulse[0];units[1].body.velocity[0]=impulse[1];impulse=null;}
     const brainEnd=profiling?performance.now():0;
     for(const u of units){u._stepX=u.body.position[0];u._stepY=u.body.position[1];}
-    world.step(dt);
+    if (solver==='p2') world.step(dt);
+    else {
+      physicalPairs.clear();
+      for(const u of units)u.pairKeys?.clear();
+      SwarmCircles.step(units,dt,RADIUS,(a,b)=>{
+        const k=contactKey(a,b);physicalPairs.set(k,[a,b]);
+        (a.pairKeys??=new Set()).add(k);(b.pairKeys??=new Set()).add(k);
+      });
+    }
     const physicsEnd=profiling?performance.now():0;
     boundsAndRender();
     const renderEnd=profiling?performance.now():0;
@@ -911,10 +925,10 @@
       const burst = Math.max(1, Math.min(250, Number($('spawnBurst').value) || 1));
       const spread = Number($('spawnSpread').value) * HEAD;
       for (let i = 0; i < burst && units.length < maxCreatures; i++) {
-        const angle = Math.random() * TAU;
+        const angle = random() * TAU;
         // A hyper-fast brush must not put hundreds of physics circles at the
         // identical spot: gently scatter around the exact cursor center.
-        const radius = Math.sqrt(Math.random()) * Math.max(spread, burst > 1 ? HEAD * .55 : 0);
+        const radius = Math.sqrt(random()) * Math.max(spread, burst > 1 ? HEAD * .55 : 0);
         place(at.x+Math.cos(angle)*radius,at.y+Math.sin(angle)*radius);
       }
       if (isZombieMode() && brush === 'zombie') startOutbreak();
@@ -1210,7 +1224,7 @@
       },
       move:(i,x,y)=>teleport(units[i],x-origin.x,y-origin.y),
       profile:enabled=>{profiling=!!enabled;return {...profile,buildMs:lastBuildMs};},
-      round:()=>({roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
+      round:()=>({roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,solver,bodies:solver==='p2'?world.bodies.length:units.length,retired:retired.length}),
 
       pointerWorld: (x, y) => pointerWorld({ clientX:x, clientY:y }),
       screenPoint, zoom: () => scale,

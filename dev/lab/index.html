@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPU swarm prototype · Swarm Arena</title>
+<style>
+:root{color-scheme:dark;font:1rem system-ui;background:#0b1727;color:#e0eaff}body{max-width:56rem;margin:auto;padding:1rem}
+nav a{color:#a8cfff}h1{font-size:1.6rem}p{line-height:1.5}form{display:flex;gap:.8rem;align-items:end;flex-wrap:wrap}label{display:grid;gap:.3rem}
+button,select,input{padding:.55rem;font:inherit}canvas{width:100%;height:auto;background:#071020;margin:1rem 0;border:1px solid #334a68}output{display:block;margin:.6rem 0;font-variant-numeric:tabular-nums}
+</style></head><body><nav><a href="../">← Swarm Arena</a></nav>
+<h1>GPU swarm prototype</h1><p>Rock, paper and scissors pursue their nearest prey in a solid arena. Each dot is one agent. This prototype measures targeting and movement. The main arena has the full battle rules.</p>
+<form id="controls"><label>Backend<select id="backend"><option>Auto</option><option>CPU</option><option>GPU</option></select></label>
+<label>Agents<input id="population" type="number" min="1" max="1000000" value="1000" required></label>
+<button>Start run</button><button type="button" id="pause" disabled>Pause</button></form>
+<output id="status" role="status">Ready</output><canvas width="900" height="900" aria-label="Swarm positions"></canvas>
+<script src="../sim/core.js"></script><script src="model.js"></script><script src="gpu.js"></script><script src="run.js"></script>
+</body></html>

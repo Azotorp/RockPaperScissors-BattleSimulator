@@ -2,8 +2,8 @@
 window.SwarmBuild=Object.freeze({
   product:'Swarm Arena',
   channel:'dev',
-  version:'0.3.0-dev.3',
-  baseCommit:'d2ed432c7324e3b36984805bcba57131de592f47',
-  notes:'Gigametre camera views, signed metric grid and local physics coordinates for distant arenas.',
+  version:'0.3.0-dev.4',
+  baseCommit:'ae4821c8246685a88e337e9695a2a94b0448f0bb',
+  notes:'Seeded swarm CPU solver, optional p2 comparison, and a WebGPU targeting and movement prototype.',
   releaseDate:'2026-11-19'
 });
