@@ -292,11 +292,22 @@
     u.holder.position.set(x,y);
   }
 
+  let acceptedHeads = requestedHeads();
   function resizeCreatures() {
     const nextHead = calculatedHead();
-    if (nextHead === HEAD) return;
-    try { B.geometry(outer, boundary, wallThickness, nextHead * .44); }
-    catch (error) { notice(error.message); return; }
+    const requested = requestedHeads();
+    if (nextHead === HEAD) { acceptedHeads = requested; return; }
+    try {
+      if (preparing) throw Error('Wait for the round to finish preparing before changing creature size.');
+      B.geometry(outer, boundary, wallThickness, nextHead * .44);
+    } catch (error) {
+      $('headsAcross').value = acceptedHeads;
+      $('headsAcrossValue').textContent = acceptedHeads;
+      S.setSetting(modeKey('headsAcross'), acceptedHeads, 'game');
+      notice(error.message);
+      return;
+    }
+    acceptedHeads = requested;
     HEAD = nextHead; RADIUS = HEAD * .44;
     CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
     for (const u of units) {
@@ -704,7 +715,10 @@
       if (boundary !== 'none' && (p[0] < v.left+RADIUS || p[0] > v.right-RADIUS ||
           p[1] < v.top+RADIUS || p[1] > v.bottom-RADIUS)) {
         u.sweep = B.segments(u._stepX, u._stepY, p[0], p[1], v, RADIUS, boundary);
-        u.sweepRange = Math.hypot(p[0]-u._stepX, p[1]-u._stepY) + 4*RADIUS;
+        // A wrapped endpoint can be an additional diameter from the
+        // entry point on each axis when measured through the torus.
+        const portalGap = boundary === 'wrap' ? Math.SQRT2 * 2 * RADIUS : 0;
+        u.sweepRange = Math.hypot(p[0]-u._stepX, p[1]-u._stepY) + portalGap;
       }
       if (B.constrain(p, velocity, v, RADIUS, boundary)) {
         teleport(u, p[0], p[1]);

@@ -40,6 +40,8 @@ for (const point of placements({seed:'inset', bounds:inner, counts:{rock:50}, ra
 const unit = (sequence, type, x) => ({sequence,type,body:{position:[x,60]}});
 const hunter = unit(0,'rock',-71), near = unit(1,'scissors',190), far = unit(2,'scissors',-40);
 assert.equal(nearest(trees([hunter,near,far]), ['scissors'], hunter, Infinity, () => true, inner), near);
+assert.equal(nearest(trees([hunter,near]), ['scissors'], hunter, Infinity, (_u,dx)=>dx>0, inner), null,
+  'FOV must not see a long-way-around image of prey behind the hunter');
 console.log('PASS inner surface, spawn, seam targeting, radius, directional and corner transfers, high-speed repeat crossings and no-boundary bypass');
 
 const {segments, contactSpans} = require('../sim/boundary.js');
