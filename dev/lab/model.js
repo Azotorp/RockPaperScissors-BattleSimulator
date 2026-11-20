@@ -9,13 +9,15 @@
       const j=i*stride, angle=random()*2*Math.PI;
       f[j]=radius+random()*(extent-2*radius);f[j+1]=radius+random()*(extent-2*radius);
       f[j+2]=speed*Math.cos(angle);f[j+3]=speed*Math.sin(angle);
-      u[j+4]=i%species;u[j+5]=0xffffffff;u[j+7]=i;
+      u[j+4]=species===2?Number(i%8===0):i%species;u[j+5]=0xffffffff;u[j+7]=i;
     }
     return data;
   }
   function cpu(data,extent,options={}) {
     const {species=3,wrap=false,fov=false,cadence=1}=options;
-    const preyMasks=species===5?[12,17,10,18,5]:[4,1,2];
+    if(options.battle)SwarmLabBattle.check(data.byteLength/size,extent,wrap);
+    const outbreak=species===2;
+    const preyMasks=outbreak?[2,1]:species===5?[12,17,10,18,5]:[4,1,2];
     let frame=0,zoom=1,far=false;
     function setView(z){
       zoom=z;
@@ -57,7 +59,7 @@
           if(!(masks[k]&bit))return;
           for(let q=heads[k];q>=0;q=next[q]){
             const o=q*stride;
-            if((bit&(1<<u[o+4]))===0)continue;
+            if((bit&(1<<u[o+4]))===0 || (outbreak && u[j+4]===1 && (u[o+6]&0xffc0)!==0))continue;
             const dx=delta(f[o]-x),dy=delta(f[o+1]-y),d=dx*dx+dy*dy;
             if(limited && d>64){
               if(d>1600)continue;
@@ -79,7 +81,7 @@
         }
         let vx=f[j+2],vy=f[j+3];
         if(best>=0 && d2>0){
-          const factor=speed/Math.sqrt(d2);
+          const factor=(outbreak && u[j+4]===0 ? -speed : speed)/Math.sqrt(d2);
           vx=delta(f[best*stride]-x)*factor;vy=delta(f[best*stride+1]-y)*factor;
         }
         const px=x+vx/60,py=y+vy/60;
@@ -87,8 +89,10 @@
         out[j+1]=wrap?portal(py):Math.max(radius,Math.min(extent-radius,py));
         out[j+2]=wrap || px>=radius&&px<=extent-radius?vx:0;
         out[j+3]=wrap || py>=radius&&py<=extent-radius?vy:0;
+        if(options.battle){out[j+2]=vx;out[j+3]=vy;}
         bits[j+4]=u[j+4];bits[j+5]=decide?best:u[j+5];bits[j+6]=0;bits[j+7]=i;
       }
+      if(options.battle)SwarmLabBattle.resolve(src,dst,extent,outbreak);
       [src,dst]=[dst,src];frame++;
     }
     return {step,setView,get data(){return src;},grid};

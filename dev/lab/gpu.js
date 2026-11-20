@@ -1,5 +1,6 @@
 window.SwarmLabGPU = (() => {
   async function open(data,extent,canvas,onLoss,options={}) {
+    if(options.battle)SwarmLabBattle.check(data.byteLength/32,extent,options.wrap);
     const adapter=await navigator.gpu?.requestAdapter();
     if(!adapter)throw Error('WebGPU adapter unavailable');
     const device=await adapter.requestDevice(), n=data.byteLength/32;
@@ -21,10 +22,11 @@ window.SwarmLabGPU = (() => {
         words[10]=Number(2*900*zoom/extent < (words[10]?1:.75));
         device.queue.writeBuffer(config,32,params,32,16);
       }
+      words[11]=Number(!!options.battle);
       setView(options.zoom||1);
       new Uint32Array(params).set([n,grid]);new Float32Array(params).set([extent,extent/grid],2);
       device.queue.writeBuffer(config,0,params);device.queue.writeBuffer(states[0],0,data);
-      const url=new URL('compute.wgsl?v=0.3.0-dev.5',document.baseURI);
+      const url=new URL('compute.wgsl?v=0.3.0-dev.6',document.baseURI);
       const response=await fetch(url);if(!response.ok)throw Error('Unable to load swarm shader');
       const module=device.createShaderModule({code:await response.text()});
       const errors=(await module.getCompilationInfo()).messages.filter(e=>e.type==='error');
@@ -35,6 +37,7 @@ window.SwarmLabGPU = (() => {
         device.createComputePipelineAsync({layout:pipelineLayout,compute:{module,entryPoint}})));
       const groups=states.map((src,i)=>device.createBindGroup({layout,entries:
         [config,src,states[1-i],heads,links,masks].map((buffer,binding)=>({binding,resource:{buffer}}))}));
+      const battle=options.battle?await createBattlePass(device,config,states,n,extent):null;
       let front=0,ctx,render,renderGroups,culler,cullGroups,indirect;
       let drawBytes=0;
       if(canvas){
@@ -87,7 +90,7 @@ window.SwarmLabGPU = (() => {
       }
       return {
         name:adapter.info?.architecture || adapter.info?.vendor || 'WebGPU',
-        bytes:2*data.byteLength+4*(n+2*count+1)+48+drawBytes,
+        bytes:2*data.byteLength+4*(n+2*count+1)+48+drawBytes+(battle?.bytes||0),
         setView,
         step(){
           device.queue.writeBuffer(config,36,words.subarray(9,10));words[9]++;
@@ -96,6 +99,7 @@ window.SwarmLabGPU = (() => {
             const pass=enc.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,groups[front]);
             pass.dispatchWorkgroups(Math.ceil(n/64));pass.end();
           }
+          battle?.encode(enc,front);
           device.queue.submit([enc.finish()]);front=1-front;
         },
         draw(){

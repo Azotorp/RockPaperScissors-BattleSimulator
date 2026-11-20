@@ -21,8 +21,13 @@
     if(!Number.isInteger(n)||n<1||n>1e6)return;
     const saved=Object.fromEntries(['species','boundary','sense','cadence','view'].map(id=>[id,$(id).value]));
     savePreferences();
-    const options={species:+saved.species,wrap:saved.boundary==='wrap',fov:saved.sense==='fov',
+    const battle=['battle3','battle5','outbreak'].includes(saved.species);
+    const species=saved.species==='outbreak'?2:Number(saved.species.replace('battle',''));
+    const options={battle,species,wrap:saved.boundary==='wrap',fov:saved.sense==='fov',
       cadence:+saved.cadence,zoom:+saved.view};
+    if(battle && (options.wrap || n>SwarmLabBattle.limit)){
+      $('status').textContent='Choose Solid walls and up to 1,024 creatures for ordered contacts.';return;
+    }
     const extent=Math.max(100,Math.ceil(Math.sqrt(n)*5)),seed=SwarmLabModel.initial(n,extent,'lab',options.species);
     let canvas=newCanvas(),engine,label,steps=0,message='';
     const cpu=()=>{

@@ -2,7 +2,7 @@
 window.SwarmLabPreferences=(()=>{
   const key='swarmArena.dev.preferences', path='lab.preferences', legacy='swarmArena.dev.lab';
   const defaults={backend:'Auto',n:1000,species:'3',boundary:'walls',sense:'all',cadence:'1',view:'1'};
-  const allowed={backend:['Auto','CPU','GPU'],species:['3','5'],boundary:['walls','wrap'],
+  const allowed={backend:['Auto','CPU','GPU'],species:['3','5','battle3','battle5','outbreak'],boundary:['walls','wrap'],
     sense:['all','fov'],cadence:['1','4','8'],view:['.25','1','4']};
   function valid(v){
     return v && typeof v==='object' && Number.isInteger(v.n) && v.n>0 && v.n<=1e6 &&

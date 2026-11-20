@@ -6,15 +6,15 @@
 nav a{color:#a8cfff}h1{font-size:1.6rem}p{line-height:1.5}form{display:flex;gap:.8rem;align-items:end;flex-wrap:wrap}label{display:grid;gap:.3rem}
 button,select,input{padding:.55rem;font:inherit}canvas{width:100%;height:auto;background:#071020;margin:1rem 0;border:1px solid #334a68}output{display:block;margin:.6rem 0;font-variant-numeric:tabular-nums}
 </style></head><body><nav><a href="../">← Swarm Arena</a></nav>
-<h1>GPU swarm prototype</h1><p>Agents pursue their nearest detectable prey. Each dot is one agent. This prototype measures targeting and movement. The main arena has the full battle rules.</p>
+<h1>GPU swarm prototype</h1><p>Agents pursue their nearest detectable prey. Each dot is one agent. Pursuit supports up to one million agents. Contact battles use the CPU contact order and support up to 1,024 agents with solid walls. Outbreak contacts model bites and incubation. The main arena includes the full AI.</p>
 <form id="controls"><label>Backend<select id="backend"><option>Auto</option><option>CPU</option><option>GPU</option></select></label>
 <label>Agents<input id="population" type="number" min="1" max="1000000" value="1000" required></label>
-<label>Species<select id="species"><option value="3">Classic RPS</option><option value="5">RPSLS</option></select></label>
+<label>Workload<select id="species"><option value="3">Classic pursuit</option><option value="5">RPSLS pursuit</option><option value="battle3">Classic contact battle</option><option value="battle5">RPSLS contact battle</option><option value="outbreak">Outbreak contacts</option></select></label>
 <label>Boundary<select id="boundary"><option value="walls">Solid walls</option><option value="wrap">Paired portals</option></select></label>
 <label>Perception<select id="sense"><option value="all">Unlimited</option><option value="fov">90° sight + hearing</option></select></label>
 <label>Simulation<select id="cadence"><option value="1">Exact pursuit</option><option value="4">Massive · refresh distant targets every 4 ticks</option><option value="8">Massive · every 8 ticks</option></select></label>
 <label>View<select id="view"><option value="1">Whole arena</option><option value="4">Center 1/16</option><option value=".25">Zoom out 4×</option></select></label>
 <button>Start run</button><button type="button" id="pause" disabled>Pause</button></form>
 <p>Massive mode also uses 360° perception when creatures are smaller than a pixel. Exact pursuit keeps the same rules at every zoom.</p><output id="status" role="status">Ready</output><output id="storage" role="status"></output><canvas width="900" height="900" aria-label="Swarm positions"></canvas>
-<script src="../sim/core.js?v=0.3.0-dev.5"></script><script src="preferences.js?v=0.3.0-dev.5"></script><script src="model.js?v=0.3.0-dev.5"></script><script src="gpu.js?v=0.3.0-dev.5"></script><script src="run.js?v=0.3.0-dev.5"></script>
+<script src="../sim/core.js?v=0.3.0-dev.6"></script><script src="preferences.js?v=0.3.0-dev.6"></script><script src="../sim/circles.js?v=0.3.0-dev.6"></script><script src="../sim/boundary.js?v=0.3.0-dev.6"></script><script src="battle.js?v=0.3.0-dev.6"></script><script src="battle-gpu.js?v=0.3.0-dev.6"></script><script src="model.js?v=0.3.0-dev.6"></script><script src="gpu.js?v=0.3.0-dev.6"></script><script src="run.js?v=0.3.0-dev.6"></script>
 </body></html>
