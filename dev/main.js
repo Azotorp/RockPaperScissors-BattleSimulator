@@ -412,7 +412,20 @@
     });
     V.syncHUD(mode);selection(); V.renderRulesDiagram(mode,mode==='3'?RPS3:RPS5); update(true);
   }
+  let rateStart=0,rateSimStart=0;
+  function resetPlaybackRate(){
+    rateStart=performance.now();rateSimStart=t;
+    $('actualSpeed').textContent='';
+  }
+  function showPlaybackRate(){
+    const now=performance.now(),elapsed=now-rateStart;
+    if(elapsed<750)return;
+    const actual=(t-rateSimStart)*1000/elapsed;
+    $('actualSpeed').textContent=Number(actual.toFixed(2))+'× actual';
+    rateStart=now;rateSimStart=t;
+  }
   function setState(next) {
+    resetPlaybackRate();
     state = next;
     $('run').textContent = next === 'ready' ? 'GO' : next === 'running' ? 'Pause' : next === 'paused' ? 'Resume' : 'Finished';
     $('run').disabled = next === 'finished';
@@ -687,14 +700,14 @@
     return rates.flee*(rates.minimum+(1-rates.minimum)*u.stamina/100);
   }
   let rates={}, boundary='walls';
-  function movement(dt) {
+  function movement(dt,peaceful) {
     const interval=aiInterval();
-    if(dirtyTrees || (stepNumber-1)%interval===0){decisions=SwarmSimulation.trees(units);dirtyTrees=false;}
+    if(!peaceful && (dirtyTrees || (stepNumber-1)%interval===0)){decisions=SwarmSimulation.trees(units);dirtyTrees=false;}
     rates={rps:rpsSpeed(),wander:wanderSpeed(),flee:fleeSpeed(),zombie:zombieSpeed(),
       boostRange:zombieBoostDistance(),boost:zombieBoostFactor(),minimum:staminaMinSpeed(),drain:staminaDrain(),rest:staminaRest()};
     for(const u of units){
       const invalid=u.target && (!eligible(u,u.target)||u.target.revision!==u.targetVersion);
-      if(invalid||u.sequence%interval===(stepNumber-1)%interval)decide(u);
+      if(!peaceful && (invalid||u.sequence%interval===(stepNumber-1)%interval))decide(u);
       let angle=u.angle,speed=rates.rps;
       if(!senses[u.type].enabled){
         u.target=u.danger=null;speed=0;
@@ -861,7 +874,8 @@
   function step(dt) {
     stepNumber++;
     const start=profiling?performance.now():0;
-    movement(dt);
+    const peaceful=isZombieMode() && !seeded;
+    movement(dt,peaceful);
     if(impulse){units[0].body.velocity[0]=impulse[0];units[1].body.velocity[0]=impulse[1];impulse=null;}
     const brainEnd=profiling?performance.now():0;
     for(const u of units){u._stepX=u.body.position[0];u._stepY=u.body.position[1];}
@@ -877,7 +891,8 @@
     const physicsEnd=profiling?performance.now():0;
     boundsAndRender();
     const renderEnd=profiling?performance.now():0;
-    collisionConversions(dt);testWinner();
+    if(!peaceful)collisionConversions(dt);
+    testWinner();
     if(profiling){profile.steps++;profile.ai+=brainEnd-start;profile.physics+=physicsEnd-brainEnd;profile.renderSync+=renderEnd-physicsEnd;profile.contacts+=performance.now()-renderEnd;}
   }
   // === INPUT: one coordinate system for mouse, touch, and focus selection ===
@@ -1205,12 +1220,16 @@
       paint({clientX:p.x,clientY:p.y},true);
     }
     if (state === 'running') {
-      accumulator=Math.min(accumulator+Math.min(tick.deltaMS/1000,.15)*Number($('speed').value),DT*config.maxSteps);
-      const deadline=performance.now()+config.frameBudget;
+      const speed=Number($('speed').value);
+      accumulator=Math.min(accumulator+Math.min(tick.elapsedMS/1000,.15)*speed,DT*config.maxSteps);
+      // Fast-forward can spend more of a frame on complete fixed steps.
+      const budget=Math.max(config.frameBudget,Math.min(60,config.frameBudget*speed));
+      const deadline=performance.now()+budget;
       while(accumulator+1e-9>=DT && state==='running'){
         t+=DT;step(DT);accumulator-=DT;
         if(performance.now()>=deadline){accumulator=Math.min(DT,accumulator);break;}
       }
+      if(state==='running')showPlaybackRate();
       if(t-lastVisionDraw>=.1){lastVisionDraw=t;drawVision();}
       update();
     }
@@ -1328,7 +1347,7 @@
   };
   $('showFov').onchange = drawVision;
   $('showHearing').onchange = drawVision;
-  $('speed').oninput = () => { $('speedValue').textContent = $('speed').value + '×'; };
+  $('speed').oninput = () => { $('speedValue').textContent = $('speed').value + '×'; resetPlaybackRate(); };
   $('headsAcross').oninput = () => {
     $('headsAcrossValue').textContent = $('headsAcross').value;
     resizeCreatures();

@@ -12,3 +12,11 @@ function run(speed=1800) {
 assert.deepEqual(run(),run());
 run(1300);
 console.log('PASS swept CPU circle impact and deterministic repeat');
+
+// A distant fourth body selects sparse storage without changing the local tie.
+for(const far of [8,1e9]){
+  const units=[0,1,-1,far].map(x=>({body:{position:[x,0],previousPosition:[0,0],velocity:[0,0]}}));
+  const order=[];
+  step(units,1/60,1,(a,b)=>order.push([units.indexOf(a),units.indexOf(b)]));
+  assert.deepEqual(order.slice(0,2),[[0,2],[0,1]]);
+}

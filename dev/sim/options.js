@@ -24,5 +24,5 @@ window.SwarmOptions = {
     ['arenaScale','Arena size multiplier',1,1,50,.25],
     ['gap','Minimum gap (world units)',2,0,100,.5]
   ],
-  physics:[['maxSteps','Maximum physics steps per frame',32,1,60,1],['frameBudget','Catch-up CPU budget (ms/frame)',10,2,100,1]]
+  physics:[['maxSteps','Maximum physics steps per frame',32,1,60,1],['frameBudget','1× catch-up CPU budget (ms/frame)',10,2,100,1]]
 };

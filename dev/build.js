@@ -2,8 +2,8 @@
 window.SwarmBuild=Object.freeze({
   product:'Swarm Arena',
   channel:'dev',
-  version:'0.3.0-dev.6',
-  baseCommit:'c33485bffdaafaa0dbf10749936071fa8c855c8b',
-  notes:'CPU-ordered GPU circle contacts, Classic and RPSLS conversion battles, and Outbreak contact timers.',
+  version:'0.3.0-dev.7',
+  baseCommit:'c07fc771861d954fd2ce3a7707f7a4f01cd79305',
+  notes:'Faster large human crowds, speed-aware catch-up and measured playback speed.',
   releaseDate:'2026-11-20'
 });
