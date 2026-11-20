@@ -143,6 +143,7 @@ window.SwarmWindow = (() => {
       const info=group('Development build');
       element('p','Version v'+build.version+' · Channel '+build.channel.toUpperCase(),info);
       element('p','Based on source commit '+build.baseCommit.slice(0,12)+' · '+build.releaseDate,info);
+      element('p',build.notes,info);
       element('p','Development preferences are separate from the live game.',info);
     }else if(name==='Camera'){
       element('p','Drag with two fingers to pan. Spread to zoom in. Your pan and zoom are saved for this mode.',g);

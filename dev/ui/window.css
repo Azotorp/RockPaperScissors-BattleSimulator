@@ -39,7 +39,10 @@ html[data-booting] body > :not(#debugMsg):not(#storageWarning){visibility:hidden
 .preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px}
 .preview-grid figure{margin:0;padding:8px;background:var(--window-deep);border-radius:8px;text-align:center}
 .preview-grid img{width:100%;aspect-ratio:1;object-fit:contain}.preview-grid figcaption{font-size:12px}
-#wallControl{display:inline-flex;align-items:center;gap:6px}#wallControl input{width:56px}
+.boundary-row{flex-wrap:nowrap}
+.boundary-row label{min-width:6em}
+.boundary-row select,#wallControl input{flex:1;min-width:0;width:auto}
+#wallWidthValue{min-width:4em;text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:700px){.arena-distribution{left:4px;transform:none;min-width:0;max-width:calc(100vw - 88px)}.overview-legend{gap:0}.overview-item{padding:2px 3px;gap:3px}.state-legend{bottom:56px;width:max-content;max-width:92vw}.edge-states{bottom:52px}.hud{bottom:110px}.setting-row{min-height:44px}#settingTabs{gap:0;padding:6px}#settingTabs button{padding:7px}}
 @media(prefers-reduced-motion:reduce){.arena-distribution,.launchers,.state-legend,.overview-bar i{transition:none}}
 

@@ -1,6 +1,6 @@
 <!doctype html><html lang="en" data-booting><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swarm Arena · Development</title>
 <style>#devBuildBadge{display:inline-block;margin:1px 0 8px;padding:4px 8px;background:#203b60;color:#cbe2ff;border:1px solid #628fc7;border-radius:7px;font:700 10px/1.2 system-ui;letter-spacing:.06em}</style>
-<link rel="stylesheet" id="themeStyle" href="assets/themes/classic/classic.css"><link rel="stylesheet" href="ui/window.css"></head><body>
+<link rel="stylesheet" id="themeStyle" href="assets/themes/classic/classic.css?v=0.3.0-dev.2"><link rel="stylesheet" href="ui/window.css?v=0.3.0-dev.2"></head><body>
 <div id="game"></div>
 <div class="arena-distribution" id="arenaDistribution" aria-label="Current species population"><div id="overviewLegend" class="overview-legend"></div><div id="overviewBars" class="overview-bar"></div></div>
 <canvas id="metricMap" aria-hidden="true"></canvas>
@@ -10,7 +10,9 @@
 <p id="roundNotice" role="status" hidden></p><div class="stats" id="stats"></div><div class="bar" id="bars"></div><div class="row"><span class="small" id="total">0 creatures</span><span class="small" id="status">Ready to start</span></div>
 <div class="row"><button class="primary" id="reset">New round</button><button class="go" id="run">GO</button><button id="fit">Fit view</button></div>
 <div class="row"><label for="speed">Speed</label><input id="speed" type="range" min="0.25" max="30" step="0.25" value="1"><span id="speedValue">1×</span></div>
-<div class="row"><label for="boundaryMode">Boundary</label><select id="boundaryMode"><option value="none">No boundary</option><option value="walls" selected>Solid walls</option><option value="wrap">Wraparound</option></select><label id="wallControl">Width <input type="range" id="wallWidth" min="1" max="100" value="1"><output id="wallWidthValue">1 px</output></label></div>
+<div class="row boundary-row"><label for="boundaryMode">Boundary</label><select id="boundaryMode"><option value="none">No boundary</option><option value="walls" selected>Solid walls</option><option value="wrap">Wraparound</option></select></div>
+<div id="wallControl" class="row boundary-row"><label for="wallWidth">Width at 1×</label><input type="range" id="wallWidth" min="1" max="100" step="1" value="1"><output for="wallWidth" id="wallWidthValue">1 px</output></div>
+<div id="styleControl" class="row boundary-row"><label for="borderStyle">Border style</label><select id="borderStyle"><option value="none">None</option><option value="dotted">Dotted</option><option value="dashed">Dashed</option><option value="solid">Solid</option><option value="double">Double</option><option value="groove">Groove</option><option value="ridge">Ridge</option><option value="inset">Inset</option><option value="outset" selected>Outset</option></select></div>
 <div class="row"><label><input id="showBounds" type="checkbox"> Show physics circles</label></div><div class="row"><label for="markerThreshold">Crosshairs below</label><input id="markerThreshold" type="range" min="2" max="30" value="10" step="1"><span class="value" id="markerThresholdValue">10 px</span></div>
  <div class="section"><h2>WORLD & MOVEMENT</h2>
  <div class="row"><label for="headsAcross">Heads across long edge</label><input id="headsAcross" type="range" min="20" max="120" step="5" value="60"><span class="value" id="headsAcrossValue">60</span></div>
@@ -57,19 +59,20 @@
 <dialog id="settingsWindow" aria-labelledby="settingsTitle"><header><h1 id="settingsTitle">Arena settings</h1><button id="settingsClose" aria-label="Close settings"></button></header>
 <nav id="settingTabs" aria-label="Settings pages"></nav><div id="settingsBody"></div></dialog>
 <div id="debugMsg"></div>
-<script src="build.js"></script>
+<script src="build.js?v=0.3.0-dev.2"></script>
 <script>
   document.title='Swarm Arena · v'+SwarmBuild.version+' · DEV';
   document.getElementById('devBuildBadge').textContent='DEV · v'+SwarmBuild.version;
 </script>
 <script src="assets/themes/registry.js"></script>
-<script src="sim/options.js"></script>
-<script src="sim/core.js"></script>
-<script src="ui/settings.js"></script>
-<script src="ui/themes.js"></script>
-<script src="ui/arena.js"></script>
-<script src="ui/settings-window.js"></script>
+<script src="sim/options.js?v=0.3.0-dev.2"></script>
+<script src="sim/boundary.js?v=0.3.0-dev.2"></script>
+<script src="sim/core.js?v=0.3.0-dev.2"></script>
+<script src="ui/settings.js?v=0.3.0-dev.2"></script>
+<script src="ui/themes.js?v=0.3.0-dev.2"></script>
+<script src="ui/arena.js?v=0.3.0-dev.2"></script>
+<script src="ui/settings-window.js?v=0.3.0-dev.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.23.0/dist/pixi.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p2.js/0.7.1/p2.min.js"></script>
-<script src="main.js?v=0.3.0-dev.1"></script>
+<script src="main.js?v=0.3.0-dev.2"></script>
 </body></html>

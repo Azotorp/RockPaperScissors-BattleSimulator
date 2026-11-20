@@ -58,7 +58,7 @@
     const loaded = await T.loadStates(id,ids);
     const url = 'assets/themes/' + id + '/' + T.registry[id].stylesheet;
     const old = $('themeStyle');
-    if (old.getAttribute('href') !== url) {
+    if (new URL(old.href).pathname !== new URL(url, document.baseURI).pathname) {
       const link = document.createElement('link'); link.rel='stylesheet';
       await new Promise((resolve,reject)=>{
         link.onload=resolve; link.onerror=()=>{link.remove();reject(Error('Theme stylesheet unavailable'));};
@@ -146,7 +146,7 @@
   }
   function redraw() {
     V.drawMap({x:camera.x,y:camera.y,zoom:scale,width:innerWidth,height:innerHeight,
-      metersPerWorldUnit:get('grid.referenceMeters')/20,boundary:$('boundaryMode').value,wallPx:Number($('wallWidth').value),bounds:arena});
+      metersPerWorldUnit:get('grid.referenceMeters')/20,boundary,wallPx:wallThickness,style:$('borderStyle').value,bounds:arena});
   }
   function drawCrosshairs(){
     const tiny=HEAD*scale<Number($('markerThreshold').value);
@@ -190,6 +190,8 @@
     const body = new p2.Body({ mass: 1, position: [x, y], fixedRotation: true, damping: 0 });
     const shape = new p2.Circle({ radius: RADIUS });
     setContactFilter(shape, type);
+    // Keep the accepted surface coordinate when p2 adjusts its working vectors.
+    body.position = new Float64Array(body.position);
     body.addShape(shape);
     world.addBody(body);
     const angle = Math.random() * TAU;
@@ -263,7 +265,7 @@
     if(!defer || retired.length<=600)disposeRetired();
   }
   function rescue() {
-    const v = arena, pad = RADIUS + 1;
+    const v = arena, pad = RADIUS;
     for (const u of units) {
       const p = u.body.position;
       const x = Math.max(v.left + pad, Math.min(v.right - pad, p[0]));
@@ -291,7 +293,11 @@
   }
 
   function resizeCreatures() {
-    HEAD = calculatedHead(); RADIUS = HEAD * .44;
+    const nextHead = calculatedHead();
+    if (nextHead === HEAD) return;
+    try { B.geometry(outer, boundary, wallThickness, nextHead * .44); }
+    catch (error) { notice(error.message); return; }
+    HEAD = nextHead; RADIUS = HEAD * .44;
     CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
     for (const u of units) {
       u.sprite.width=u.sprite.height=HEAD;
@@ -303,6 +309,8 @@
       outline(u);
       if(u.immunity)u.immunity.clear().circle(0, 0, RADIUS + 3).stroke({ color: ink.immunity, width: 2 });
     }
+    if (boundary !== 'none' && arena) rescue();
+    index();
     drawVision();
   }
 
@@ -432,16 +440,21 @@
     const extent=config.arenaScale*(isZombieMode()?Number($('spawnExtent').value):1);
     const width=innerWidth*extent,height=innerHeight*extent;
     const left=(innerWidth-width)/2,top=(innerHeight-height)/2;
-    arena={left,top,right:left+width,bottom:top+height,width,height};
+    outer=B.rectangle(left,top,left+width,top+height);
+    wallThickness=Number($('wallWidth').value);
+    arena=null;
     roundSeed=get(modeKey('seedMode'))==='fixed'?get(modeKey('seed')):crypto.getRandomValues(new Uint32Array(2)).join('-');
-    redraw();buildUI();
+    buildUI();
     let places;
     try{
+      arena=B.geometry(outer,boundary,wallThickness,RADIUS);
+      redraw();
       const total=Object.values(counts).reduce((a,b)=>a+b,0);
       if(!total)throw Error('Choose at least one creature for the next round.');
       if(total>maxCreatures)throw Error('Round limit is '+maxCreatures+' creatures. Reduce the requested population.');
       places=SwarmSimulation.placements({seed:roundSeed,bounds:arena,counts,radius:RADIUS,gap:config.gap,distribution:get(modeKey('distribution'))});
     }catch(e){
+      redraw();
       setState('ready');$('run').disabled=$('startBig').disabled=true;notice(e.message);
       function finishCleanup(){if(ticket!==generation)return;disposeRetired(performance.now()+7);if(retired.length)requestAnimationFrame(finishCleanup);}
       finishCleanup();return;
@@ -502,7 +515,39 @@
   }
 
   let decisions=new Map(), dirtyTrees=true, nextSequence=0;
-  let arena={left:0,top:0,right:innerWidth,bottom:innerHeight,width:innerWidth,height:innerHeight};
+  const B = SwarmBoundary;
+  let outer = B.rectangle(0, 0, innerWidth, innerHeight);
+  let arena = outer, wallThickness = 1;
+
+  function updateBoundary() {
+    const modeValue = $('boundaryMode').value;
+    const thickness = Number($('wallWidth').value);
+    try {
+      if (preparing && (modeValue !== boundary || thickness !== wallThickness))
+        throw Error('Wait for the round to finish preparing before changing its boundary.');
+      const next = B.geometry(outer, modeValue, thickness, RADIUS);
+      const changed = modeValue !== boundary || thickness !== wallThickness;
+      boundary = modeValue;
+      wallThickness = thickness;
+      arena = next;
+      if (changed) {
+        if (boundary !== 'none') rescue();
+        dirtyTrees = true;
+        index();
+        drawVision();
+        drawCrosshairs();
+        notice('');
+      }
+    } catch (error) {
+      $('boundaryMode').value = boundary;
+      $('wallWidth').value = wallThickness;
+      S.setSetting(modeKey('boundaryMode'), boundary, 'game');
+      S.setSetting(modeKey('wallWidth'), wallThickness, 'game');
+      notice(error.message);
+    }
+    V.syncHUD(mode);
+    redraw();
+  }
   let config={}, senses={}, kindRules={};
   function refreshConfig() {
     config={};
@@ -655,21 +700,14 @@
     const v = arena;
     for (const u of units) {
       const p = u.body.position, velocity = u.body.velocity;
-      if (boundary === 'walls') {
-        if (p[0] < v.left + RADIUS) { p[0] = v.left + RADIUS; velocity[0] = Math.abs(velocity[0]); }
-        if (p[0] > v.right - RADIUS) { p[0] = v.right - RADIUS; velocity[0] = -Math.abs(velocity[0]); }
-        if (p[1] < v.top + RADIUS) { p[1] = v.top + RADIUS; velocity[1] = Math.abs(velocity[1]); }
-        if (p[1] > v.bottom - RADIUS) { p[1] = v.bottom - RADIUS; velocity[1] = -Math.abs(velocity[1]); }
-      } else if (boundary === 'wrap') {
-        const width = v.right - v.left, height = v.bottom - v.top;
-        let moved = false;
-        if (p[0] < v.left) { p[0] += width; moved = true; }
-        else if (p[0] >= v.right) { p[0] -= width; moved = true; }
-        if (p[1] < v.top) { p[1] += height; moved = true; }
-        else if (p[1] >= v.bottom) { p[1] -= height; moved = true; }
-        if (moved) {
-          teleport(u,p[0],p[1]);
-        }
+      u.sweep = null;
+      if (boundary !== 'none' && (p[0] < v.left+RADIUS || p[0] > v.right-RADIUS ||
+          p[1] < v.top+RADIUS || p[1] > v.bottom-RADIUS)) {
+        u.sweep = B.segments(u._stepX, u._stepY, p[0], p[1], v, RADIUS, boundary);
+        u.sweepRange = Math.hypot(p[0]-u._stepX, p[1]-u._stepY) + 4*RADIUS;
+      }
+      if (B.constrain(p, velocity, v, RADIUS, boundary)) {
+        teleport(u, p[0], p[1]);
       }
       u.body.aabbNeedsUpdate = true;
       u.holder.position.set(p[0], p[1]);
@@ -683,10 +721,33 @@
   function collisionConversions(dt) {
     index();
     const used=new Set(),changes=[], bites=new Map();
+    const travel = u => u.sweep ? u.sweepRange : Math.hypot(u.body.position[0]-u._stepX,u.body.position[1]-u._stepY);
+    const path = u => u.sweep || [{from:0, until:1, x:u._stepX, y:u._stepY,
+      vx:u.body.position[0]-u._stepX, vy:u.body.position[1]-u._stepY}];
     let maxTravel=0;
-    for(const u of units)maxTravel=Math.max(maxTravel,Math.hypot(u.body.position[0]-u._stepX,u.body.position[1]-u._stepY));
+    for(const u of units) maxTravel=Math.max(maxTravel,travel(u));
+    function interact(a,b,lo,hi) {
+      if(used.has(a)||used.has(b))return;
+      if(isZombieMode()){
+        const h=a.type==='human'?a:b,z=a.type==='zombie'?a:b;
+        if(h.immuneUntil>t || !senses.zombie.enabled)return;
+        const list=bites.get(h)||[];list.push([lo,hi]);bites.set(h,list);
+        z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
+      } else {
+        const winner=beats(a.type,b.type)?a:beats(b.type,a.type)?b:null;
+        if(!winner)return;
+        const loser=winner===a?b:a;
+        if(t<loser.immuneUntil)return;
+        changes.push([loser,winner.type]);used.add(a);used.add(b);
+      }
+    }
     function consider(a,b,physical=false){
       if(!a||!b||a===b||a.type===b.type||used.has(a)||used.has(b))return;
+      if (!physical && (a.sweep || b.sweep)) {
+        B.contactSpans(path(a), path(b), CATCH, boundary==='wrap'?arena:null,
+          (lo,hi)=>interact(a,b,lo,hi));
+        return;
+      }
       let dx=a._stepX-b._stepX,dy=a._stepY-b._stepY;
       if(boundary==='wrap'){dx-=Math.round(dx/arena.width)*arena.width;dy-=Math.round(dy/arena.height)*arena.height;}
       const vx=a.body.position[0]-a._stepX-b.body.position[0]+b._stepX;
@@ -701,23 +762,12 @@
           if(lo>hi)return;
         }
       }
-      if(isZombieMode()){
-        const h=a.type==='human'?a:b,z=a.type==='zombie'?a:b;
-        if(h.immuneUntil>t || !senses.zombie.enabled)return;
-        const list=bites.get(h)||[];list.push([lo,hi]);bites.set(h,list);
-        z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
-      } else {
-        const winner=beats(a.type,b.type)?a:beats(b.type,a.type)?b:null;
-        if(!winner)return;
-        const loser=winner===a?b:a;
-        if(t<loser.immuneUntil)return;
-        changes.push([loser,winner.type]);used.add(a);used.add(b);
-      }
+      interact(a,b,lo,hi);
     }
     for(const [a,b] of physicalPairs.values())consider(a,b,true);
     for(const a of units){
       if(used.has(a) || (isZombieMode()&&a.type==='human'))continue;
-      const range=CATCH+Math.hypot(a.body.position[0]-a._stepX,a.body.position[1]-a._stepY)+maxTravel;
+      const range=CATCH+travel(a)+maxTravel;
       const [x,y]=a.body.position;
       const scan=(cx,cy)=>query(cx,cy,range,b=>{if(isZombieMode()||a.sequence<b.sequence)consider(a,b);});
       scan(x,y);
@@ -824,7 +874,7 @@
       if (closest) setFocus(closest);
       return;
     }
-    if (!brush || preparing || retired.length) return;
+    if (!arena || !brush || preparing || retired.length) return;
     if(Math.max(Math.abs(at.x),Math.abs(at.y))>RADIUS*2**21){notice('Outside the precision range for placement.');return;}
     if(boundary!=='none' && (!closest||spray) && (at.x<arena.left || at.x>arena.right || at.y<arena.top || at.y>arena.bottom)){
       notice('Place creatures inside the arena.');return;
@@ -1143,7 +1193,7 @@
       },
       move:(i,x,y)=>teleport(units[i],x,y),
       profile:enabled=>{profiling=!!enabled;return {...profile,buildMs:lastBuildMs};},
-      round:()=>({roundSeed,preparing,arena,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
+      round:()=>({roundSeed,preparing,arena,outer,radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
 
       pointerWorld: (x, y) => pointerWorld({ clientX:x, clientY:y }),
       screenPoint, zoom: () => scale,
@@ -1190,7 +1240,8 @@
     S.setSetting('game.mode',$('mode').value,'game');
     enterMode();
   };
-  $('boundaryMode').onchange = () => { boundary=$('boundaryMode').value;if(boundary!=='none')rescue(); redraw(); drawVision(); };
+  $('boundaryMode').oninput = $('boundaryMode').onchange = updateBoundary;
+  $('wallWidth').oninput = $('wallWidth').onchange = updateBoundary;
   $('showBounds').onchange=()=>units.forEach(outline);
   $('markerThreshold').oninput = () => {
     $('markerThresholdValue').textContent=$('markerThreshold').value+' px';drawCrosshairs();
@@ -1244,7 +1295,7 @@
   });
   window.addEventListener('resize', () => {
     app.renderer.resize(innerWidth, innerHeight);
-    resizeCreatures(); redraw(); drawVision();
+    redraw(); drawVision();
   });
   $('saveResult').onclick = () => {
     const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 620;
@@ -1285,7 +1336,7 @@
   }
   function enterMode() {
     mode=get('game.mode');readColors();S.restoreControls(mode);HEAD=calculatedHead();RADIUS=HEAD*.44;CATCH=2*RADIUS+Math.max(1,HEAD*.05);restoreCamera();reset();
-    for(const el of S.controls) el.oninput?.();
+    for(const el of S.controls) if(el.id!=='wallWidth' && el.id!=='boundaryMode')el.oninput?.();
     $('survivalTime').disabled=unlimitedOutbreak();
     applyPanels();V.syncHUD(mode);redraw();
   }
@@ -1293,7 +1344,7 @@
     const save=()=>{
       const path=S.pathFor(el,mode), value=S.valueOf(el);
       if(S.schema.get(path).valid(value)) S.setSetting(path,value,'game');
-      if(el.id==='wallWidth' || el.id==='boundaryMode') {V.syncHUD(mode);redraw();}
+      if(el.id==='borderStyle') {V.syncHUD(mode);redraw();}
     };
     el.addEventListener('input',save);el.addEventListener('change',()=>{save();const path=S.pathFor(el,mode);if(!S.schema.get(path).valid(S.valueOf(el)))el.value=get(path);S.flush();});
   }
