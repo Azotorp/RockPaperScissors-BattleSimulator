@@ -54,8 +54,9 @@ html[data-booting] body > :not(#debugMsg):not(#storageWarning){visibility:hidden
 #legendToggle[aria-expanded=false]~#stateTimers{display:none}
 @media(max-width:700px){#settingTabs{flex-wrap:nowrap;overflow-x:auto}#settingTabs button{flex:none}}
 
-/* Panel backgrounds share one setting. Population bars keep their species colors. */
-:root{--overlay-surface:color-mix(in srgb,var(--window,#15243a) calc(100% * var(--overlay-alpha,0)),transparent)}
+/* The Controls and Spawn panels each have their own background slider. */
+:root{--overlay-surface:color-mix(in srgb,var(--window,#15243a) calc(100% * var(--overlay-alpha,1)),transparent)}
+#statsPanel,#spawnPanel{--overlay-surface:color-mix(in srgb,var(--window,#15243a) calc(100% * var(--panel-opacity,1)),transparent)}
 #statsPanel,#spawnPanel,.arena-distribution,.state-legend,.hud,.launchers,.prestart,.result,
 #settingsWindow,#settingsOpen,#storageWarning,#debugMsg,.edge,#layoutTools,
 .preview-grid figure,.panel .opacity-control,.panel .stat,.panel button,.panel select,.panel input[type=number],
@@ -63,7 +64,7 @@ html[data-booting] body > :not(#debugMsg):not(#storageWarning){visibility:hidden
   background:var(--overlay-surface);box-shadow:none;backdrop-filter:none;
   text-shadow:0 1px 3px #000,0 0 2px #000
 }
-#settingsWindow::backdrop{background:color-mix(in srgb,#020915 calc(55% * var(--overlay-alpha,0)),transparent)}
+#settingsWindow::backdrop{background:color-mix(in srgb,#020915 calc(55% * var(--overlay-alpha,1)),transparent)}
 select option{background:var(--window);color:var(--window-text)}
 .state-legend{bottom:54px;width:max-content;max-width:94vw}
 @media(max-width:700px){.state-legend{bottom:86px}}
@@ -72,4 +73,5 @@ select option{background:var(--window);color:var(--window-text)}
 [data-overlay][data-positioned]{position:fixed;inset:var(--overlay-y) auto auto var(--overlay-x)!important;transform:none!important;margin:0!important}
 .moving-overlays [data-overlay]{pointer-events:auto;touch-action:none;cursor:move;outline:1px dashed var(--accent)}
 #layoutTools{position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:90;display:flex;gap:8px}
-#settingsWindow header{touch-action:none;cursor:move}
+@media (pointer:fine) and (hover:hover){#settingsWindow header{cursor:move}}
+@media (pointer:coarse),(pointer:none),(hover:none){.move-overlays{display:none}}

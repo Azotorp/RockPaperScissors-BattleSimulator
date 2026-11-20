@@ -33,8 +33,8 @@ window.SwarmWindow = (() => {
   }
   function interfacePage() {
     const general=group('Appearance');
-    field(general,'Overlay background transparency','hud.backgroundTransparency','range',{lo:0,hi:100,suffix:'%'});
-    button('Move overlays',()=>{dialog.close();SwarmOverlayLayout.edit();},general);
+    field(general,'Other overlay background transparency','hud.backgroundTransparency','range',{lo:0,hi:100,suffix:'%'});
+    button('Move overlays',()=>{dialog.close();SwarmOverlayLayout.edit();},general).className='move-overlays';
     button('Reset overlay positions',()=>SwarmOverlayLayout.reset(),general);
     field(general,'Theme','theme.id',null,{choices:Object.fromEntries(Object.values(T.registry).map(t=>[t.id,t.displayName]))});
     if(mode()!=='zombie'){

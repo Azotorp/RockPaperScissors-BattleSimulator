@@ -1,5 +1,6 @@
 window.SwarmOverlayLayout=(()=>{
   const s=SwarmSettings;
+  const mouseLayout=matchMedia('(pointer:fine) and (hover:hover)');
   for(const edge of document.querySelectorAll('.edge'))edge.id=[...edge.classList].find(c=>c.startsWith('edge-'));
   const panels=s.overlays.map(id=>document.getElementById(id)).filter(Boolean);
   const toolbar=document.createElement('div');
@@ -7,7 +8,11 @@ window.SwarmOverlayLayout=(()=>{
   const addButton=(label,action)=>{
     const b=document.createElement('button');b.textContent=label;b.onclick=action;toolbar.append(b);
   };
-  addButton('Done moving',()=>{document.body.classList.remove('moving-overlays');toolbar.hidden=true;});
+  function stopEditing(){
+    drag=null;document.body.classList.remove('moving-overlays');toolbar.hidden=true;applyAll();
+  }
+  addButton('Done moving',stopEditing);
+  mouseLayout.addEventListener('change',()=>{if(!mouseLayout.matches)stopEditing();});
   function reset(){
     for(const el of panels)s.setSetting('hud.layout.'+el.id,null,'layout');
     applyAll();s.flush();
@@ -32,6 +37,7 @@ window.SwarmOverlayLayout=(()=>{
   for(const el of panels){
     el.dataset.overlay='';observer.observe(el);
     el.addEventListener('pointerdown',event=>{
+      if(!mouseLayout.matches || event.pointerType!=='mouse')return;
       const dialogHeader=el.id==='settingsWindow' && event.target.closest('header') && !event.target.closest('button');
       if((!dialogHeader && toolbar.hidden) || event.button!==0 || !event.isPrimary)return;
       const r=el.getBoundingClientRect();
@@ -61,5 +67,5 @@ window.SwarmOverlayLayout=(()=>{
   },true);
   s.subscribe(paths=>{if(paths.some(p=>p.startsWith('hud.layout.')))applyAll();});
   window.addEventListener('resize',applyAll);s.ready.then(applyAll);
-  return {edit(){document.body.classList.add('moving-overlays');toolbar.hidden=false;},reset};
+  return {edit(){if(!mouseLayout.matches)return;document.body.classList.add('moving-overlays');toolbar.hidden=false;},reset};
 })();

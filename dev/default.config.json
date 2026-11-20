@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "preferences": {
-    "hud.statsOpacity": 95,
+    "hud.statsOpacity": 100,
     "game.mode": "3",
     "modes.3.population": 30,
     "modes.3.speed": 1,
@@ -31,7 +31,7 @@
     "modes.3.zombieBoostFactor": 1.5,
     "modes.3.unlimitedTime": true,
     "modes.3.survivalTime": 120,
-    "hud.spawnOpacity": 95,
+    "hud.spawnOpacity": 100,
     "modes.3.massSpawn": false,
     "modes.3.spawnRate": 120,
     "modes.3.spawnBurst": 1,
@@ -275,7 +275,7 @@
     "hud.text.transparency": 0,
     "hud.toolbar.transparency": 0,
     "hud.states.transparency": 0,
-    "hud.backgroundTransparency": 100,
+    "hud.backgroundTransparency": 0,
     "hud.layout.statsPanel": null,
     "hud.layout.spawnPanel": null,
     "hud.layout.arenaDistribution": null,

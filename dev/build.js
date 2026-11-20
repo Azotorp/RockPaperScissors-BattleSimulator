@@ -2,8 +2,8 @@
 window.SwarmBuild=Object.freeze({
   product:'Swarm Arena',
   channel:'dev',
-  version:'0.3.0-dev.8',
-  baseCommit:'040e08c48cc41b84f4995522cc64e55e0c8ba2cc',
-  notes:'Optional GPU steering, offscreen collision control, remembered walls, yellow infection markers and expanded population and speed controls.',
+  version:'0.3.0-dev.9',
+  baseCommit:'b1aca59c79e434ee736e5ec3705df61e27a18e22',
+  notes:'Opaque overlay defaults, independent panel opacity controls and desktop-only overlay dragging.',
   releaseDate:'2026-11-20'
 });

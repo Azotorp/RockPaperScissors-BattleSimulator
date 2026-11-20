@@ -67,7 +67,7 @@ async def main():
           check(population.max==='999999' && speed.max==='100','limits');
           check(s.schema.get('modes.zombie.speed').valid(100),'speed import');
           check(stateItems.textContent.includes('Infected human'),'state names');
-          check(getComputedStyle(statsPanel).backgroundColor.endsWith(' 0)') || getComputedStyle(statsPanel).backgroundColor==='rgba(0, 0, 0, 0)','default transparent '+getComputedStyle(statsPanel).backgroundColor);
+          check(statsOpacity.value==='100' && s.getSetting('hud.backgroundTransparency')===0,'opaque defaults');
         }""")
         # Download and import via the same controls used on a deployed site.
         await p.locator('#settingsOpen').click()

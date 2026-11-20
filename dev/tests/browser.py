@@ -31,6 +31,42 @@ async def main():
             await page.goto(ORIGIN + 'dev/')
             await page.wait_for_function("window.__swarmInputDebug || debugMsg.textContent")
             assert await page.evaluate("!!window.__swarmInputDebug"), await page.locator('#debugMsg').text_content()
+            await page.evaluate("""async()=>{
+              const alpha=el=>{
+                const ctx=document.createElement('canvas').getContext('2d');
+                ctx.fillStyle=getComputedStyle(el).backgroundColor;
+                ctx.fillRect(0,0,1,1);return ctx.getImageData(0,0,1,1).data[3];
+              };
+              for(const el of [statsPanel,spawnPanel,stateLegend,settingsWindow]){
+                if(alpha(el)!==255)throw Error(el.id+' must start opaque');
+              }
+              const slide=(el,n)=>{el.value=n;el.dispatchEvent(new Event('input',{bubbles:true}));};
+              SwarmSettings.setSetting('hud.backgroundTransparency',100);
+              slide(statsOpacity,10);
+              if(Math.abs(alpha(statsPanel)-26)>1 || alpha(spawnPanel)!==255 || alpha(stateLegend)!==0)
+                throw Error('Controls 10%, Spawn 100%, other overlays transparent');
+              slide(statsOpacity,100);slide(spawnOpacity,40);
+              if(alpha(statsPanel)!==255 || alpha(spawnPanel)!==102)throw Error('independent panel opacity');
+              await SwarmSettings.flush();
+            }""")
+            await page.reload()
+            await page.wait_for_function("window.__swarmInputDebug")
+            assert await page.evaluate("statsOpacity.value==='100' && spawnOpacity.value==='40' && SwarmSettings.getSetting('hud.backgroundTransparency')===100")
+            await page.locator('#settingsOpen').click()
+            await page.get_by_role('button',name='Interface',exact=True).click()
+            move=page.get_by_role('button',name='Move overlays',include_hidden=True)
+            assert await move.is_visible()==(width>=500)
+            assert await page.get_by_role('button',name='Reset overlay positions').is_visible()
+            if width<500:
+                await page.evaluate("SwarmOverlayLayout.edit()")
+                assert await page.locator('#layoutTools').is_hidden()
+                header=await page.locator('#settingsWindow header h1').bounding_box()
+                x,y=header['x']+12,header['y']+9
+                cdp=await ctx.new_cdp_session(page)
+                for kind,points in [('touchStart',[{'x':x,'y':y}]),('touchMove',[{'x':x+50,'y':y+60}]),('touchEnd',[])]:
+                    await cdp.send('Input.dispatchTouchEvent',{'type':kind,'touchPoints':points})
+                assert await page.evaluate("!settingsWindow.hasAttribute('data-positioned') && SwarmSettings.getSetting('hud.layout.settingsWindow')===null")
+            await page.locator('#settingsClose').click()
             await page.evaluate("""() => {
               window.d = __swarmInputDebug;
               window.s = SwarmSettings;

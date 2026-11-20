@@ -59,7 +59,7 @@ window.SwarmSettings = (() => {
     register('hud.'+widget+'.exit',numeric(2000,0,30000,1));
   }
   for (const part of ['bar','text','toolbar','states']) register('hud.'+part+'.transparency',numeric(0,0,100,1));
-  register('hud.backgroundTransparency',numeric(100,0,100,1));
+  register('hud.backgroundTransparency',numeric(0,0,100,1));
   const overlays=['statsPanel','spawnPanel','arenaDistribution','stateLegend','settingsOpen','settingsWindow','diagram','prestart','result','launchers','viewStatus','storageWarning','debugMsg','edge-population','edge-toolbar','edge-states'];
   for(const id of overlays)register('hud.layout.'+id,{d:null,valid:v=>v===null ||
     (Array.isArray(v) && v.length===2 && v.every(n=>Number.isFinite(n)&&n>=0&&n<=1))});
