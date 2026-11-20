@@ -1,0 +1,163 @@
+{
+  "id": "classic",
+  "displayName": "Classic",
+  "schemaVersion": 1,
+  "stylesheet": "classic.css",
+  "categoryColors": {
+    "rock": "#a7a8b1",
+    "paper": "#f2f6ff",
+    "scissors": "#52bdff",
+    "lizard": "#9dde62",
+    "spock": "#f6a34a",
+    "human": "#7db9ff",
+    "zombie": "#99d75b"
+  },
+  "nameColors": {},
+  "outlineColors": {},
+  "fallback": "base-classic-placeholder",
+  "states": {
+    "R": {
+      "frames": [
+        "creatures/rock.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": 135,
+      "fps": 8
+    },
+    "P": {
+      "frames": [
+        "creatures/paper.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": 90,
+      "fps": 8
+    },
+    "Sc": {
+      "frames": [
+        "creatures/scissors.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": 90,
+      "fps": 8
+    },
+    "L": {
+      "frames": [
+        "creatures/lizard.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": 0,
+      "fps": 8
+    },
+    "Sp": {
+      "frames": [
+        "creatures/spock.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "H": {
+      "frames": [
+        "creatures/human.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Z": {
+      "frames": [
+        "creatures/zombie.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Hs": {
+      "frames": [
+        "creatures/human-scared.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Hi": {
+      "frames": [
+        "creatures/Hi.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Zi": {
+      "frames": [
+        "creatures/Zi.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Zh": {
+      "frames": [
+        "creatures/Zh.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Zc": {
+      "frames": [
+        "creatures/Zc.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    },
+    "Za": {
+      "frames": [
+        "creatures/zombie.png"
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "facingDegrees": -90,
+      "fps": 8
+    }
+  }
+}
