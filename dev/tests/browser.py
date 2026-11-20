@@ -76,6 +76,21 @@ async def main():
               d.move(0,-4000,4000);d.stepSimulation(1);
               check(d.units()[0].x===-4000 && wallControl.hidden && styleControl.hidden,'unbounded behavior');
               opt('boundaryMode','wrap');
+              d.scenario([['rock',100,150],['paper',innerWidth-50,300]]);
+              const before=d.units();
+              opt('camera',{x:0,y:0,zoom:1.5});
+              const cam=d.camera(), time=d.time();
+              check(d.round().outer.width===innerWidth,'zoom resized arena');
+              resizeArena.click();
+              check(Math.abs(d.round().outer.width-innerWidth/1.5)<1e-6,'view capture');
+              check(d.units()[0].x===before[0].x && d.units()[0].y===before[0].y,'insider moved');
+              check(d.units()[1].x!==before[1].x && d.units()[1].vx===before[1].vx,'outsider or velocity');
+              check(d.time()===time && d.round().state==='paused' && d.zoom()===1.5 &&
+                JSON.stringify(d.camera())===JSON.stringify(cam),'resize disturbed round or camera');
+              opt('boundaryMode','none');d.move(0,-4000,4000);resizeArena.click();
+              check(d.units()[0].x===-4000,'unbounded resize moved creature');
+              opt('camera',{x:0,y:0,zoom:1});
+              opt('boundaryMode','wrap');
               opt('borderStyle','outset');
               check(!wallControl.hidden && wallWidth.getBoundingClientRect().width>112,'responsive control');
               document.querySelector('#reset').click();

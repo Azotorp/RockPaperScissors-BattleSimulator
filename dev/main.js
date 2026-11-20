@@ -1244,6 +1244,33 @@
   }
   $('run').onclick = run;
   $('startBig').onclick = run;
+  $('resizeArena').onclick = () => {
+    try {
+      if (preparing) throw Error('Wait for the round to finish preparing before resizing.');
+      const view = visibleWorld();
+      const nextOuter = B.rectangle(view.left, view.top, view.right, view.bottom);
+      const nextArea = B.geometry(nextOuter,boundary,wallThickness,RADIUS);
+      // p2 uses float32 internally. Reject a distant bounded resize before
+      // moving a body beyond the same precision budget used by the brush.
+      if (boundary !== 'none' && Object.values(view).some(n=>Math.abs(n)>RADIUS*2**21))
+        throw Error('Resize cancelled. This view exceeds the active physics precision range.');
+      const moves = SwarmResize(units,arena,nextArea,RADIUS,boundary);
+      outer = nextOuter;
+      arena = nextArea;
+      for (const {agent,x,y} of moves) {
+        teleport(agent,x,y);
+        agent.immuneUntil = t + immunitySeconds();
+        agent.sweep = null;
+      }
+      if (boundary !== 'none') {
+        dirtyTrees = true;
+        for (const u of units) { u.target=null; u.danger=null; }
+        index();
+      }
+      redraw();drawVision();drawCrosshairs();
+      notice('Arena resized to view · '+moves.length+' relocated.');
+    } catch (error) { notice(error.message); }
+  };
   $('reset').onclick = reset;
   $('again').onclick = reset;
   $('fit').onclick = () => { setFocus(null); fit(); saveCamera(); };

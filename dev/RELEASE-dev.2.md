@@ -1,6 +1,6 @@
 # Swarm Arena v0.3.0-dev.2
 
-The boundary portion of this milestone is available under `/dev/` on `main`. The starting revision was `b19d62c`. The first implementation commit was `20c4a75`. **Resize Arena to View is pending the owner's relocation decision.** The development milestone is open.
+The boundary portion of this milestone is available under `/dev/` on `main`. The starting revision was `b19d62c`. The first implementation commit was `20c4a75`. Resize Arena to View captures the current camera rectangle on demand. Only circles outside the new inner area move. Existing occupants keep their exact positions. Outsiders map proportionally and receive rescue immunity. Crowded targets use deterministic alternate sites. If the search cannot fit everyone, the entire resize is cancelled. No Boundary mode moves nobody.
 
 ## What changed
 
@@ -16,6 +16,7 @@ Run from the repository root.
 
 ```sh
 node dev/tests/boundary.cjs
+node dev/tests/resize.cjs
 python dev/tests/browser.py
 ```
 
@@ -48,7 +49,7 @@ At 10,000 agents the dev build took longer per frame and physics step than the s
 
 ## Remaining work in order
 
-1. Confirm whether manual resize moves only outsiders or remaps every agent. Implement the chosen policy, deterministic placement in crowded arenas, rescue immunity and cache rebuilding. Finish dev.2 acceptance and tag the completed milestone.
+1. Outside-only resizing passed pure planner and real-browser tests on desktop and mobile viewports.
 2. Dev.3 covers extreme camera precision, coordinate separation and metric-grid verification at the requested distances.
 3. Dev.4 covers the dedicated deterministic CPU reference, WebGPU prototype, device selection/loss and first backend parity benchmarks.
 4. Dev.5 and later cover GPU interaction parity, rendering and simulation LOD, and the 100,000 and 1,000,000-agent stress matrix. The current game uses CPU/p2 and retains its 15,000-agent round limit.
