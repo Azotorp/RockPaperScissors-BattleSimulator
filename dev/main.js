@@ -25,7 +25,8 @@
     V.applyPalette();
   }
   const TAU = 2 * Math.PI, DT = 1 / 60;
-  const MIN_ZOOM = 1e-5, MAX_ZOOM = 1e5;
+  const MAX_ZOOM = 1e5;
+  const origin = {x:0,y:0};
   const requestedHeads = () => Math.max(20, Number($('headsAcross').value) || 60);
   const calculatedHead = () => Math.max(8, Math.max(innerWidth, innerHeight) / requestedHeads());
   let HEAD = calculatedHead(), RADIUS = HEAD * .44, CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
@@ -145,7 +146,7 @@
     }
   }
   function redraw() {
-    V.drawMap({x:camera.x,y:camera.y,zoom:scale,width:innerWidth,height:innerHeight,
+    V.drawMap({origin,x:camera.x,y:camera.y,zoom:scale,width:innerWidth,height:innerHeight,
       metersPerWorldUnit:get('grid.referenceMeters')/20,boundary,wallPx:wallThickness,style:$('borderStyle').value,bounds:arena});
   }
   function drawCrosshairs(){
@@ -173,7 +174,7 @@
     }
   }
   function fit() {
-    scale = 1; camera.scale.set(1); camera.position.set(0, 0);
+    scale = 1; camera.scale.set(1); camera.position.set(origin.x,origin.y);
     $('zoomLabel').textContent = '100%';
     redraw(); drawVision();
   }
@@ -451,6 +452,8 @@
     const extent=config.arenaScale*(isZombieMode()?Number($('spawnExtent').value):1);
     const width=innerWidth*extent,height=innerHeight*extent;
     const left=(innerWidth-width)/2,top=(innerHeight-height)/2;
+    camera.position.set(camera.x-origin.x*scale,camera.y-origin.y*scale);
+    origin.x=0;origin.y=0;
     outer=B.rectangle(left,top,left+width,top+height);
     wallThickness=Number($('wallWidth').value);
     arena=null;
@@ -536,6 +539,8 @@
     try {
       if (preparing && (modeValue !== boundary || thickness !== wallThickness))
         throw Error('Wait for the round to finish preparing before changing its boundary.');
+      if (modeValue !== 'none' && Math.max(Math.abs(outer.left),Math.abs(outer.right),Math.abs(outer.top),Math.abs(outer.bottom))>2**22*RADIUS)
+        throw Error('Resize to a local view before enabling walls or portals.');
       const next = B.geometry(outer, modeValue, thickness, RADIUS);
       const changed = modeValue !== boundary || thickness !== wallThickness;
       boundary = modeValue;
@@ -925,9 +930,7 @@
     if (state === 'finished') { $('result').classList.remove('show'); setState('paused'); }
     update(true); drawVision();
   }
-  // p2 stores positions in Float32. Keep a viewport span below 2^21 radii
-  // so world-point placement retains several representable increments per radius.
-  const safeMinZoom=()=>Math.max(MIN_ZOOM,Math.max(innerWidth,innerHeight)/(2**21*RADIUS));
+  const safeMinZoom=()=>SwarmCamera.minZoom(innerWidth,innerHeight,get('grid.referenceMeters')/20);
   const clampZoom=value=>Math.min(MAX_ZOOM,Math.max(safeMinZoom(),value));
   function pinchStart(pair){
     if(!pair)return null;
@@ -940,7 +943,7 @@
     scale=clampZoom(start.zoom*pair.distance/start.distance);
     camera.scale.set(scale);camera.position.set(at.x-start.wx*scale,at.y-start.wy*scale);
     $('zoomLabel').textContent=Number((scale*100).toPrecision(4))+'%';
-    redraw();drawVision();saveCamera();
+    saveCamera();redraw();drawVision();
   }
   function setScaleAt(clientX, clientY, multiplier) {
     // Zoom about the pointer; keep the world point at the same screen point.
@@ -951,13 +954,13 @@
     camera.scale.set(scale);
     camera.position.set(at.x - wx * scale, at.y - wy * scale);
     $('zoomLabel').textContent = (scale*100>=1?(scale*100).toFixed(0):(scale*100).toPrecision(2)) + '%';
-    redraw(); drawVision(); saveCamera();
+    saveCamera(); redraw(); drawVision();
   }
   function cameraPan(cssDX, cssDY) {
     const rect = app.canvas.getBoundingClientRect();
     camera.x += cssDX * app.screen.width / Math.max(1, rect.width);
     camera.y += cssDY * app.screen.height / Math.max(1, rect.height);
-    redraw(); drawVision(); saveCamera();
+    saveCamera(); redraw(); drawVision();
   }
 
   // Touch events are the primary mobile input path. This works on mobile
@@ -1201,18 +1204,18 @@
     window.__swarmInputDebug = {
       scenario:items=>{
         ++generation;preparing=false;clear();nextSequence=0;stepNumber=0;t=0;accumulator=0;
-        for(const [kind,x,y,angle=0] of items){const u=add(kind,x,y);u.angle=u.heading=u.wanderHeading=angle;}
+        for(const [kind,x,y,angle=0] of items){const u=add(kind,x-origin.x,y-origin.y);u.angle=u.heading=u.wanderHeading=angle;}
         seeded=isZombieMode()&&items.some(([kind])=>kind==='zombie');outbreakAt=seeded?0:null;
         setState('paused');update(true);
       },
-      move:(i,x,y)=>teleport(units[i],x,y),
+      move:(i,x,y)=>teleport(units[i],x-origin.x,y-origin.y),
       profile:enabled=>{profiling=!!enabled;return {...profile,buildMs:lastBuildMs};},
-      round:()=>({roundSeed,preparing,arena,outer,radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
+      round:()=>({roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
 
       pointerWorld: (x, y) => pointerWorld({ clientX:x, clientY:y }),
       screenPoint, zoom: () => scale,
-      camera: () => ({x:camera.x,y:camera.y}),
-      units: () => units.map(u => ({id:u.sequence,ai:u.aiState,target:u.target?.sequence,exposure:u.exposure,incubation:u.incubation,type:u.type,x:u.body.position[0],y:u.body.position[1],
+      camera: () => ({x:camera.x-origin.x*scale,y:camera.y-origin.y*scale}),
+      units: () => units.map(u => ({id:u.sequence,ai:u.aiState,target:u.target?.sequence,exposure:u.exposure,incubation:u.incubation,type:u.type,x:origin.x+u.body.position[0],y:origin.y+u.body.position[1],
         stamina:u.stamina,resting:u.restState,vx:u.body.velocity[0],vy:u.body.velocity[1]})),
       lastPlaced: () => lastInputWorld,
       time: () => t,
@@ -1250,17 +1253,29 @@
       const view = visibleWorld();
       const nextOuter = B.rectangle(view.left, view.top, view.right, view.bottom);
       const nextArea = B.geometry(nextOuter,boundary,wallThickness,RADIUS);
-      // p2 uses float32 internally. Reject a distant bounded resize before
-      // moving a body beyond the same precision budget used by the brush.
-      if (boundary !== 'none' && Object.values(view).some(n=>Math.abs(n)>RADIUS*2**21))
-        throw Error('Resize cancelled. This view exceeds the active physics precision range.');
+      // Only a physical arena must fit the local p2 precision budget.
+      const spanLimit=2**21*RADIUS;
+      if (boundary !== 'none' && Math.max(nextArea.width,nextArea.height)>spanLimit)
+        throw Error('Resize cancelled. Zoom in to fit the active physics precision range.');
       const moves = SwarmResize(units,arena,nextArea,RADIUS,boundary);
-      outer = nextOuter;
-      arena = nextArea;
+      const shiftX = boundary!=='none' && Math.max(Math.abs(view.left),Math.abs(view.right))>spanLimit
+        ? Math.round((view.left+view.right)/2) : 0;
+      const shiftY = boundary!=='none' && Math.max(Math.abs(view.top),Math.abs(view.bottom))>spanLimit
+        ? Math.round((view.top+view.bottom)/2) : 0;
+      outer = SwarmCamera.translate(nextOuter,-shiftX,-shiftY);
+      arena = SwarmCamera.translate(nextArea,-shiftX,-shiftY);
+      const moved = new Set();
       for (const {agent,x,y} of moves) {
-        teleport(agent,x,y);
+        teleport(agent,x-shiftX,y-shiftY);
         agent.immuneUntil = t + immunitySeconds();
         agent.sweep = null;
+        moved.add(agent);
+      }
+      if (shiftX || shiftY) {
+        for (const u of units) if (!moved.has(u))
+          teleport(u,u.body.position[0]-shiftX,u.body.position[1]-shiftY);
+        origin.x+=shiftX;origin.y+=shiftY;
+        camera.position.set(camera.x+shiftX*scale,camera.y+shiftY*scale);
       }
       if (boundary !== 'none') {
         dirtyTrees = true;
@@ -1364,9 +1379,18 @@
     img.src = T.icon(actual);
   };
 
-  function saveCamera() { S.setSetting(modeKey('camera'),{x:camera.x,y:camera.y,zoom:scale},'game'); }
+  function saveCamera() {
+    // Limit camera travel where doubles can still distinguish a creature.
+    const limit = 2*SwarmCamera.halfMeters/(get('grid.referenceMeters')/20);
+    const x=B.clamp(camera.x-origin.x*scale,-limit*scale,limit*scale);
+    const y=B.clamp(camera.y-origin.y*scale,-limit*scale,limit*scale);
+    if (Math.abs(camera.x-origin.x*scale)>limit*scale || Math.abs(camera.y-origin.y*scale)>limit*scale)
+      camera.position.set(x+origin.x*scale,y+origin.y*scale);
+    S.setSetting(modeKey('camera'),{x,y,zoom:scale},'game');
+  }
   function restoreCamera() {
-    const c=get(modeKey('camera'));scale=clampZoom(c.zoom);camera.scale.set(scale);camera.position.set(c.x,c.y);
+    const c=get(modeKey('camera'));scale=clampZoom(c.zoom);camera.scale.set(scale);const limit=2*SwarmCamera.halfMeters/(get('grid.referenceMeters')/20)*scale;
+    camera.position.set(B.clamp(c.x,-limit,limit)+origin.x*scale,B.clamp(c.y,-limit,limit)+origin.y*scale);
     $('zoomLabel').textContent=Number((scale*100).toPrecision(4))+'%';
   }
   function applyPanels() {

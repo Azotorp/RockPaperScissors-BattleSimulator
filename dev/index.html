@@ -1,6 +1,6 @@
 <!doctype html><html lang="en" data-booting><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swarm Arena · Development</title>
 <style>#devBuildBadge{display:inline-block;margin:1px 0 8px;padding:4px 8px;background:#203b60;color:#cbe2ff;border:1px solid #628fc7;border-radius:7px;font:700 10px/1.2 system-ui;letter-spacing:.06em}</style>
-<link rel="stylesheet" id="themeStyle" href="assets/themes/classic/classic.css?v=0.3.0-dev.2"><link rel="stylesheet" href="ui/window.css?v=0.3.0-dev.2"></head><body>
+<link rel="stylesheet" id="themeStyle" href="assets/themes/classic/classic.css?v=0.3.0-dev.3"><link rel="stylesheet" href="ui/window.css?v=0.3.0-dev.3"></head><body>
 <div id="game"></div>
 <div class="arena-distribution" id="arenaDistribution" aria-label="Current species population"><div id="overviewLegend" class="overview-legend"></div><div id="overviewBars" class="overview-bar"></div></div>
 <canvas id="metricMap" aria-hidden="true"></canvas>
@@ -60,21 +60,22 @@
 <dialog id="settingsWindow" aria-labelledby="settingsTitle"><header><h1 id="settingsTitle">Arena settings</h1><button id="settingsClose" aria-label="Close settings"></button></header>
 <nav id="settingTabs" aria-label="Settings pages"></nav><div id="settingsBody"></div></dialog>
 <div id="debugMsg"></div>
-<script src="build.js?v=0.3.0-dev.2"></script>
+<script src="build.js?v=0.3.0-dev.3"></script>
 <script>
   document.title='Swarm Arena · v'+SwarmBuild.version+' · DEV';
   document.getElementById('devBuildBadge').textContent='DEV · v'+SwarmBuild.version;
 </script>
 <script src="assets/themes/registry.js"></script>
-<script src="sim/options.js?v=0.3.0-dev.2"></script>
-<script src="sim/resize.js?v=0.3.0-dev.2"></script>
-<script src="sim/boundary.js?v=0.3.0-dev.2"></script>
-<script src="sim/core.js?v=0.3.0-dev.2"></script>
-<script src="ui/settings.js?v=0.3.0-dev.2"></script>
-<script src="ui/themes.js?v=0.3.0-dev.2"></script>
-<script src="ui/arena.js?v=0.3.0-dev.2"></script>
-<script src="ui/settings-window.js?v=0.3.0-dev.2"></script>
+<script src="sim/options.js?v=0.3.0-dev.3"></script>
+<script src="sim/camera.js?v=0.3.0-dev.3"></script>
+<script src="sim/resize.js?v=0.3.0-dev.3"></script>
+<script src="sim/boundary.js?v=0.3.0-dev.3"></script>
+<script src="sim/core.js?v=0.3.0-dev.3"></script>
+<script src="ui/settings.js?v=0.3.0-dev.3"></script>
+<script src="ui/themes.js?v=0.3.0-dev.3"></script>
+<script src="ui/arena.js?v=0.3.0-dev.3"></script>
+<script src="ui/settings-window.js?v=0.3.0-dev.3"></script>
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.23.0/dist/pixi.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p2.js/0.7.1/p2.min.js"></script>
-<script src="main.js?v=0.3.0-dev.2"></script>
+<script src="main.js?v=0.3.0-dev.3"></script>
 </body></html>

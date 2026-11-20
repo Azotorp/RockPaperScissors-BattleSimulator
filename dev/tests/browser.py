@@ -101,6 +101,28 @@ async def main():
               check(stored['modes.3.wallWidth']===40, 'persisted width');
               check(localStorage.getItem('swarmArena.preferences')==='stable sentinel','stable storage');
             }""")
+            await page.evaluate("""() => {
+              const radius=d.round().radius, m=.024;
+              d.scenario([['rock',100,100],['paper',250,250]]);
+              const original=JSON.stringify(d.units()), fixed=JSON.stringify(d.round().outer);
+              for (const z of [10,1,.0001,...[1e6,1e8,1e9].map(dist=>Math.min(innerWidth,innerHeight)*m/(2*dist))]) {
+                opt('camera',{x:37,y:-28,zoom:z});
+                check(Math.abs(d.zoom()-z)<1e-12,'camera zoom floor');
+                check(JSON.stringify(d.units())===original && JSON.stringify(d.round().outer)===fixed,'camera changed simulation');
+                const g=SwarmVisuals.grid();
+                check(Number.isFinite(g.step*g.gap) && g.gap>=50, 'invalid metric grid');
+              }
+              const far=1e9/m;
+              opt('camera',{x:-far,y:far,zoom:1});
+              resizeArena.click();
+              const r=d.round();
+              check(Math.abs(r.outer.left-far)<1e-4 && Math.abs(r.origin.x-far)<innerWidth,'distant arena origin');
+              d.scenario([['rock',r.arena.right-radius-1,r.arena.top+100],
+                          ['scissors',r.arena.left+100,r.arena.top+100]]);
+              d.setPairVelocity(480,0);d.stepSimulation(1);
+              check(Math.abs(d.units()[0].x-r.arena.left-radius-7)<.01,'far portal lost precision');
+              opt('camera',{x:0,y:0,zoom:1});reset.click();
+            }""")
             if folder := os.getenv('SWARM_SCREENSHOTS'):
                 Path(folder).mkdir(parents=True, exist_ok=True)
                 await page.screenshot(path=str(Path(folder) / f'boundary-{width}.png'))

@@ -12,7 +12,7 @@ window.SwarmArenaView = (() => {
   function metric(n,step) {
     const unit=Math.max(Math.abs(n),step);
     const [factor,label]=unit>=1e9?[1e9,'Gm']:unit>=1e6?[1e6,'Mm']:unit>=1000?[1000,'km']:[1,'m'];
-    const digits=Math.max(0,Math.min(10,Math.ceil(-Math.log10(step/factor))));
+    const digits=Math.max(0,Math.min(15,Math.ceil(-Math.log10(step/factor))));
     return (n>0?'+':'')+(n/factor).toFixed(digits)+' '+label;
   }
   function drawBorder(g, bounds, x, y, zoom, width, height, thickness, style, wrap) {
@@ -70,7 +70,7 @@ window.SwarmArenaView = (() => {
     side(false, left, -1, top, bottom, true);
     side(false, right, 1, top, bottom, false);
   }
-  function drawMap({x,y,zoom,width,height,metersPerWorldUnit,boundary,wallPx,style,bounds}) {
+  function drawMap({x,y,zoom,width,height,metersPerWorldUnit,boundary,wallPx,style,bounds,origin={x:0,y:0}}) {
     const canvas=$('metricMap'), dpr=Math.min(devicePixelRatio,2);
     if(canvas.width!==Math.round(width*dpr) || canvas.height!==Math.round(height*dpr)) {
       canvas.width=Math.round(width*dpr); canvas.height=Math.round(height*dpr);
@@ -85,9 +85,7 @@ window.SwarmArenaView = (() => {
     const lineColor = key => get('grid.'+key)==='theme'?palette['grid-'+key]:get('grid.'+key);
     // Bound loops by the viewport, even at numerical camera limits.
     function ticks(axis,origin,extent) {
-      const first=Math.ceil(-origin/gap), limit=Math.ceil(extent/gap)+1;
-      for(let i=0;i<limit;i++) {
-        const tick=first+i, px=origin+tick*gap;
+      for (const {index:tick,px} of SwarmCamera.ticks(origin,metersPerWorldUnit,step,zoom,extent)) {
         if(px<-.01 || px>extent+.01) continue;
         g.strokeStyle=lineColor(tick===0?'axis':tick%5===0?'major':'minor');
         g.lineWidth=(Number(palette['grid-width'])||1)*(tick===0?2:1);
@@ -108,7 +106,7 @@ window.SwarmArenaView = (() => {
       }
     }
     const occupied=[...document.querySelectorAll('.panel:not(.hidden),.hud,.launchers,#settingsOpen,.arena-distribution,.prestart:not(.hidden),#stateLegend:not([hidden])')].map(el=>el.getBoundingClientRect());
-    if(get('grid.visible')) {ticks('x',x,width);ticks('y',y,height);}
+    if(get('grid.visible')) {ticks('x',origin.x-x/zoom,width);ticks('y',origin.y-y/zoom,height);}
     if (boundary !== 'none') drawBorder(g, bounds, x, y, zoom, width, height, wallPx, style, boundary === 'wrap');
     gridInfo={step,gap,metersPerWorldUnit};
   }

@@ -47,7 +47,7 @@ window.SwarmSettings = (() => {
     register(modePath(mode,'brush'),choice(mode==='zombie'?'zombie':null,[null,...kinds]));
     register(modePath(mode,'diagram'),bool(true));
     register(modePath(mode,'diagramOpacity'),numeric(34,0,100,1));
-    register(modePath(mode,'camera'),{d:{x:0,y:0,zoom:1},valid:v=>v && Object.keys(v).length===3 && [v.x,v.y,v.zoom].every(Number.isFinite) && Math.abs(v.x)<=1e14 && Math.abs(v.y)<=1e14 && v.zoom>=1e-5 && v.zoom<=1e5});
+    register(modePath(mode,'camera'),{d:{x:0,y:0,zoom:1},valid:v=>v && Object.keys(v).length===3 && [v.x,v.y,v.zoom].every(Number.isFinite) && Math.abs(v.x)<=1e17 && Math.abs(v.y)<=1e17 && v.zoom>=1e-12 && v.zoom<=1e5});
   }
   register('theme.id',choice('classic',Object.keys(SwarmRegistry)));
   for (const widget of ['population','toolbar','states']) {
