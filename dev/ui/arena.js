@@ -1,7 +1,7 @@
 window.SwarmArenaView = (() => {
   const $ = id => document.getElementById(id);
   const settings=SwarmSettings, themes=SwarmThemes, get=settings.getSetting;
-  const stateLabels={H:'Calm human',Hs:'Frightened human',Hi:'Infected human',Zi:'Idle zombie',Zh:'Hunting zombie',Zc:'Chasing zombie',Za:'Attacking zombie'};
+  const stateLabels={Z:'Inactive zombie',H:'Calm human',Hs:'Frightened human',Hi:'Infected human',Zi:'Idle zombie',Zh:'Hunting zombie',Zc:'Chasing zombie',Za:'Attacking zombie'};
   let counts={}, palette={}, gridInfo={};
   function applyPalette() {
     const css=getComputedStyle(document.documentElement);
@@ -173,8 +173,9 @@ window.SwarmArenaView = (() => {
       const bar=$('overview-bar-'+kind);bar.style.width=pct;bar.title=kind+': '+n+' ('+pct+')';
     }
   }
-  function stateList(target,values,expanded) {
+  function stateList(target,values) {
     for(const [id,label] of Object.entries(stateLabels)) {
+      if(id==='Z' && !values[id]){target.querySelector('[data-state=Z]')?.remove();continue;}
       let item=target.querySelector('[data-state="'+id+'"]');
       if(!item){
         item=document.createElement('span');item.dataset.state=id;item.title=label;
@@ -182,14 +183,14 @@ window.SwarmArenaView = (() => {
       }
       const url=themes.icon(id), img=item.firstElementChild;
       if(img.getAttribute('src')!==url) img.src=url;
-      const text=(expanded?label:id)+' '+(values[id]??'—');
+      const text=label+' '+(values[id]??'—');
       if(item.lastElementChild.textContent!==text)item.lastElementChild.textContent=text;
     }
   }
   function renderStates() {
     const expanded=get('hud.states.expanded');
     $('legendToggle').setAttribute('aria-expanded',String(expanded));
-    stateList($('stateItems'),counts,expanded);
+    stateList($('stateItems'),counts);
   }
   function setStateCounts(values={}) {counts=values;renderStates();}
   const widgets=[];
@@ -214,6 +215,7 @@ window.SwarmArenaView = (() => {
   }
   function syncHUD(mode) {
     const root=document.documentElement.style;
+    root.setProperty('--overlay-alpha',1-get('hud.backgroundTransparency')/100);
     for(const part of ['bar','text','toolbar','states']) root.setProperty('--'+part+'-alpha',1-get('hud.'+part+'.transparency')/100);
     $('stateLegend').hidden=mode!=='zombie'||!get('hud.states.visible');
     $('diagram').style.opacity=get('modes.'+mode+'.diagramOpacity')/100;

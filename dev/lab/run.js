@@ -1,8 +1,16 @@
-(() => {
+(async () => {
   const $=id=>document.getElementById(id);
   let current, ticket=0,paused=true;
   try{
-    const s=SwarmLabPreferences.read();
+    let defaults=SwarmLabPreferences.defaults;
+    try{
+      const response=await fetch('../default.config.json',{cache:'no-cache'});
+      if(response.ok){
+        const value=(await response.json()).preferences?.[SwarmLabPreferences.path];
+        if(SwarmLabPreferences.valid(value))defaults=value;
+      }
+    }catch{}
+    const s=SwarmLabPreferences.read(defaults);
     if(s && ['CPU','GPU','Auto'].includes(s.backend) && Number.isInteger(s.n) && s.n>0 && s.n<=1e6){
       $('backend').value=s.backend;$('population').value=s.n;
       for(const id of ['species','boundary','sense','cadence','view']){

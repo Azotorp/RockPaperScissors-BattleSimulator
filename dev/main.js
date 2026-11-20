@@ -14,7 +14,8 @@
   };
   const T = SwarmThemes, S = SwarmSettings, V = SwarmArenaView;
   const get = S.getSetting, modeKey = field => S.modePath(mode,field);
-  const COLORS = {}, ink = {};
+  const COLORS = {}, ink = {}, infectedYellow=0xffe347;
+  await S.ready;
   const requestedTheme = get('theme.id');
   const stateOf = u => u.visualState || (u.type === 'human' && u.scared ? 'Hs' : T.codes[u.type]);
   function readColors() {
@@ -41,12 +42,10 @@
   const zombieBoostDistance = () => Number($('zombieBoostRange').value) * HEAD;
   const zombieBoostFactor = () => Number($('zombieBoostFactor').value);
   const aiInterval = () => Math.max(1, Number($('aiInterval').value) || 1);
-  const maxCreatures = 15000; // protect browser against accidental infinite allocation
+  let motionEpoch=0,gpuDevice=null,gpuOpening=false,gpuFailure='',gpuChoice='',gpuPending=false,gpuSteps=0,gpuAgents=0;
+  let gpuInput=new Float32Array(0),gpuGoals=new Float64Array(0);
+  const maxCreatures = 999999; // protect browser against accidental infinite allocation
 
-  const fixationLimits = () => {
-    const lo = Number($('fixationMin').value), hi = Number($('fixationMax').value);
-    return [Math.min(lo, hi), Math.max(lo, hi)];
-  };
   const immunitySeconds = () => Number($('immunityTime').value);
   const startIds = T.stateIds;
   const app = new Application();
@@ -149,6 +148,7 @@
       metersPerWorldUnit:get('grid.referenceMeters')/20,boundary,wallPx:wallThickness,style:$('borderStyle').value,bounds:arena});
   }
   function drawCrosshairs(){
+    if(preparing)return;
     const tiny=HEAD*scale<Number($('markerThreshold').value);
     markerLayer.clear();
     const byKind=new Map();
@@ -157,15 +157,22 @@
       const x=camera.x+u.body.position[0]*scale,y=camera.y+u.body.position[1]*scale;
       const visible=x>=-pad&&x<=app.screen.width+pad&&y>=-pad&&y<=app.screen.height+pad;
       const spriteVisible=!tiny&&visible;
-      if(typeof u.sprite.play==='function' && typeof u.sprite.stop==='function' && u.sprite.playing!==spriteVisible){
+      if(spriteVisible && !u.holder){
+        Object.assign(u,visual(u.type));u.appearanceTheme=null;updateAppearance(u);
+        u.holder.position.set(...u.body.position);u.holder.rotation=u.angle+u.facingOffset;
+        actors.addChild(u.holder);
+      }else if(!spriteVisible && u.holder){
+        u.holder.destroy({children:true});u.holder=u.sprite=u.immunity=u.circle=u.fearGlow=null;
+      }
+      if(u.sprite && typeof u.sprite.play==='function' && typeof u.sprite.stop==='function' && u.sprite.playing!==spriteVisible){
         if(spriteVisible)u.sprite.play();else u.sprite.stop();
       }
-      u.holder.visible=spriteVisible;
-      u.sprite.visible=!tiny;
+
       if(u.fearGlow)u.fearGlow.visible=!tiny&&u.scared;
       if(tiny && visible){
-        if(!byKind.has(u.type))byKind.set(u.type,new Map());
-        const points=byKind.get(u.type),pixel=Math.round(x)+','+Math.round(y);
+        const color=u.aiState==='Hi'?infectedYellow:COLORS[u.type];
+        if(!byKind.has(color))byKind.set(color,new Map());
+        const points=byKind.get(color),pixel=Math.round(x)+','+Math.round(y);
         if(!points.has(pixel))points.set(pixel,[x,y]);
       }
     }
@@ -173,7 +180,11 @@
     if(byKind.size){
       for(const points of byKind.values())marks(points);
       markerLayer.stroke({color:ink['marker-edge'],width:3.2,alpha:.95});
-      for(const [type,points] of byKind){marks(points);markerLayer.stroke({color:COLORS[type],width:1.6,alpha:1});}
+      for(const [color,points] of byKind){
+        if(color===infectedYellow)continue;
+        marks(points);markerLayer.stroke({color,width:1.6,alpha:1});
+      }
+      if(byKind.has(infectedYellow)){marks(byKind.get(infectedYellow));markerLayer.stroke({color:infectedYellow,width:1.6,alpha:1});}
     }
   }
   function fit() {
@@ -190,7 +201,8 @@
     return {holder,sprite,fearGlow:null,circle:null,immunity:null};
   }
   function add(type, x, y) {
-    const view = visual(type);
+    motionEpoch++;
+
     const shape = solver==='p2' ? new p2.Circle({radius:RADIUS}) : {radius:RADIUS};
     setContactFilter(shape,type);
     let body;
@@ -207,21 +219,20 @@
     body.velocity[0] = Math.cos(angle) * speed;
     body.velocity[1] = Math.sin(angle) * speed;
     const u = {
-      sequence:nextSequence++,type, body, ...view, angle, scared: false, appearanceId:T.codes[type], facingOffset:T.loaded.get(T.codes[type]).facingDegrees*Math.PI/180,
+      sequence:nextSequence++,type, body, holder:null,sprite:null,immunity:null,circle:null,fearGlow:null, angle, scared: false, appearanceId:T.codes[type], facingOffset:T.loaded.get(T.codes[type]).facingDegrees*Math.PI/180,
       heading: angle, wanderHeading: angle, nextWander: t + .5 + random() * 3,
       immuneUntil: 0,
       // Humans start moderately rested. Panic drains energy only while running.
       stamina: staminaStart(), restingUntil: -1, restState: false
     };
     body.agent = u;
-    view.holder.position.set(x, y);
-    view.holder.rotation = angle + T.loaded.get(T.codes[type]).facingDegrees * Math.PI/180;
-    actors.addChild(view.holder);
+
     units.push(u);resetBrain(u);
     if($('showBounds').checked)outline(u);
     return u;
   }
   function change(u, type) {
+    motionEpoch++;
     if (u.type === type && (type !== 'human' || !u.scared)) return false;
     forgetContacts(u);u.type = type;
     u.visualState = null;
@@ -236,6 +247,8 @@
   function updateAppearance(u) {
     const id = stateOf(u), a = T.loaded.get(id);
     if (!a) return;
+    u.facingOffset=a.facingDegrees*Math.PI/180;
+    if(!u.holder)return;
     if (u.appearanceId !== id || u.appearanceTheme !== T.id) {
       if (a.textures.length===1 && !u.sprite.play) {
         u.sprite.texture=a.textures[0];u.sprite.anchor.set(...a.pivot);
@@ -246,6 +259,7 @@
       u.appearanceId=id;u.appearanceTheme=T.id;
     }
     u.facingOffset=a.facingDegrees*Math.PI/180;
+    u.sprite.tint=id==='Hi'?infectedYellow:0xffffff;
     u.sprite.width=HEAD;u.sprite.height=HEAD;
     if(u.scared && !u.fearGlow){
       u.fearGlow=new Sprite(T.loaded.get('Hs').textures[0]);u.fearGlow.anchor.set(.5);
@@ -255,6 +269,7 @@
     outline(u);
   }
   function outline(u){
+    if(!u.holder)return;
     const show=$('showBounds').checked;
     if(show && !u.circle){u.circle=new Graphics();u.holder.addChild(u.circle);}
     if(u.circle){u.circle.visible=show;if(show)u.circle.clear().circle(0,0,RADIUS).stroke({color:COLORS[u.type],width:1.4,alpha:.8});}
@@ -262,7 +277,7 @@
   const retired=[];
   function disposeRetired(deadline=Infinity){
     while(retired.length && performance.now()<deadline){
-      const u=retired.pop();if(u.body.p2Managed)world.removeBody(u.body);u.holder.destroy({children:true});
+      const u=retired.pop();if(u.body.p2Managed)world.removeBody(u.body);u.holder?.destroy({children:true});
     }
   }
   function clear(defer=false){
@@ -292,16 +307,18 @@
     u.pairKeys.clear();
   }
   function teleport(u, x, y) {
+    motionEpoch++;
     forgetContacts(u);
     const body = u.body;
     body.position[0] = body.previousPosition[0] = x;
     body.position[1] = body.previousPosition[1] = y;
     body.aabbNeedsUpdate=true;u._stepX=x;u._stepY=y;u.revision++;u.target=null;dirtyTrees=true;
-    u.holder.position.set(x,y);
+    u.holder?.position.set(x,y);
   }
 
   let acceptedHeads = requestedHeads();
   function resizeCreatures() {
+    motionEpoch++;
     const nextHead = calculatedHead();
     const requested = requestedHeads();
     if (nextHead === HEAD) { acceptedHeads = requested; return; }
@@ -319,7 +336,7 @@
     HEAD = nextHead; RADIUS = HEAD * .44;
     CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
     for (const u of units) {
-      u.sprite.width=u.sprite.height=HEAD;
+      if(u.sprite)u.sprite.width=u.sprite.height=HEAD;
       if(u.fearGlow)u.fearGlow.width=u.fearGlow.height=HEAD;
       const shape = u.body.shapes[0];
       shape.radius = RADIUS;
@@ -425,6 +442,7 @@
     rateStart=now;rateSimStart=t;
   }
   function setState(next) {
+    motionEpoch++;
     resetPlaybackRate();
     state = next;
     $('run').textContent = next === 'ready' ? 'GO' : next === 'running' ? 'Pause' : next === 'paused' ? 'Resume' : 'Finished';
@@ -436,7 +454,7 @@
     if (!force && t - lastUI < .12) return;
     lastUI = t;
     const numbers = Object.fromEntries(active().map(a => [a, 0]));
-    let scared=0,soonest=Infinity;const states={H:0,Hs:0,Hi:0,Zi:0,Zh:0,Zc:0,Za:0};
+    let scared=0,soonest=Infinity;const states={H:0,Hs:0,Hi:0,Z:0,Zi:0,Zh:0,Zc:0,Za:0};
     for (const u of units) { numbers[u.type]++;if(isZombieMode()){states[u.aiState]++;if(u.incubation!==null)soonest=Math.min(soonest,u.incubation);}
       if (u.type === 'human' && u.scared) scared++; }
     for (const a of active()) {
@@ -461,7 +479,12 @@
   let solver='cpu', random=SwarmSimulation.randomStream('swarm');
   let generation=0, preparing=false, roundSeed='', lastBuildMs=0;
   function notice(text) {$('roundNotice').textContent=text;$('roundNotice').hidden=!text;}
+  let roundExtent=1;
+  function rememberWalls(){
+    S.setSetting(modeKey('arenaBounds'),[outer.left,outer.top,outer.right,outer.bottom,origin.x,origin.y,roundExtent],'game');
+  }
   function reset() {
+    motionEpoch++;
     const ticket=++generation, started=performance.now();
     preparing=false;setFocus(null);clear(true);nextSequence=0;
     t=0;accumulator=0;stepNumber=0;lastUI=-1;lastVisionDraw=0;
@@ -473,9 +496,12 @@
     const extent=config.arenaScale*(isZombieMode()?Number($('spawnExtent').value):1);
     const width=innerWidth*extent,height=innerHeight*extent;
     const left=(innerWidth-width)/2,top=(innerHeight-height)/2;
-    camera.position.set(camera.x-origin.x*scale,camera.y-origin.y*scale);
-    origin.x=0;origin.y=0;
-    outer=B.rectangle(left,top,left+width,top+height);
+    const saved=get(modeKey('arenaBounds'));
+    const reuse=saved && saved[6]===extent;
+    const ox=reuse?saved[4]:0,oy=reuse?saved[5]:0;
+    camera.position.set(camera.x+(ox-origin.x)*scale,camera.y+(oy-origin.y)*scale);
+    origin.x=ox;origin.y=oy;roundExtent=extent;
+    outer=reuse?B.rectangle(...saved.slice(0,4)):B.rectangle(left,top,left+width,top+height);
     wallThickness=Number($('wallWidth').value);
     arena=null;
     roundSeed=get(modeKey('seedMode'))==='fixed'?get(modeKey('seed')):crypto.getRandomValues(new Uint32Array(2)).join('-');
@@ -484,7 +510,7 @@
     buildUI();
     let places;
     try{
-      arena=B.geometry(outer,boundary,wallThickness,RADIUS);
+      arena=B.geometry(outer,boundary,wallThickness,RADIUS);rememberWalls();
       redraw();
       const total=Object.values(counts).reduce((a,b)=>a+b,0);
       if(!total)throw Error('Choose at least one creature for the next round.');
@@ -513,6 +539,7 @@
     batch();
   }
   function startOutbreak() {
+    motionEpoch++;
     if (!isZombieMode() || seeded === true) return;
     seeded = true; outbreakAt = t;
     if (state === 'ready') setState('running');
@@ -557,6 +584,7 @@
   let arena = outer, wallThickness = 1;
 
   function updateBoundary() {
+    motionEpoch++;
     const modeValue = $('boundaryMode').value;
     const thickness = Number($('wallWidth').value);
     try {
@@ -589,11 +617,12 @@
   }
   let config={}, senses={}, kindRules={};
   function refreshConfig() {
+    motionEpoch++;
     config={};
     for(const items of Object.values(SwarmOptions))for(const [key] of items){
       if(S.schema.has(modeKey(key)))config[key]=get(modeKey(key));
     }
-    if(isZombieMode())for(const k of ['idleInterrupt','spreadFear'])config[k]=get(modeKey(k));
+    if(isZombieMode())config.spreadFear=get(modeKey('spreadFear'));
     for(const kind of active()) {
       senses[kind]=Object.fromEntries(['enabled','fov','angle','sight','hearing'].map(k=>[k,get(modeKey('ai.'+kind+'.'+k))]));
       senses[kind].coneCos=Math.cos(senses[kind].angle*Math.PI/360);
@@ -617,7 +646,7 @@
     const hearing2=(HEAD*sensor.hearing)**2,sight2=(HEAD*sensor.sight)**2;
     const range=Math.min(radius,HEAD*Math.max(sensor.sight,sensor.hearing));
     return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy,d2)=>
-      (d2<=hearing2 || (d2<=sight2 && dx*facingX+dy*facingY>=Math.sqrt(d2)*sensor.coneCos-1e-8)) && accept(q),wrap);
+      (d2<=hearing2 || (d2<=sight2 && dx*facingX+dy*facingY>=Math.sqrt(d2)*sensor.coneCos-1e-8)) && accept(q,dx,dy,d2),wrap);
   }
   function rollTime(a,b){return (Math.min(a,b)+random()*Math.abs(b-a))/1000;}
   function wander(u){
@@ -636,22 +665,35 @@
     }
   }
   function resetBrain(u) {
-    u.target=null;u.danger=null;u.targetVersion=-1;u.revision=(u.revision||0)+1;
+    u.target=null;u.danger=null;u.challenger=null;u.dangerUntil=0;u.targetVersion=-1;u.revision=(u.revision||0)+1;
     u.fearUntil=0;u.directFearUntil=0;u.scared=false;u.exposure=0;u.incubation=null;u.bonusContact=0;
-    u.attackUntil=0;u.trackedAt=t;u.lockUntil=0;u.searchUntil=0;
+    u.attackUntil=0;u.biteTarget=null;u.searchUntil=0;
     u.idleUntil=t+(isZombieMode()?rollTime(config.idleMin,config.idleMax):0);
     u.nextWander=t+rollTime(config.wanderMin,config.wanderMax);
     assignState(u,u.type==='human'?'H':u.type==='zombie'?'Zi':'wander');
     dirtyTrees=true;
   }
   function eligible(u,q) {
-    return !!q && q.body.agent===q && kindRules[u.type].prey.includes(q.type) && q.incubation===null;
+    return !!q && q.body.agent===q && kindRules[u.type].prey.includes(q.type);
   }
   function decide(u){
     if(!senses[u.type].enabled){u.target=u.danger=null;return;}
-    const outbreak=isZombieMode();
-    u.danger=findTarget(u,kindRules[u.type].threat,u.type==='human'?Infinity:config.threat*HEAD);
+    if(u.type==='zombie'){
+      u.target=findTarget(u,['human'],Infinity);
+      if(u.target){
+        u.targetVersion=u.target.revision;u.idleUntil=0;u.searchUntil=t+config.huntTime/1000;
+      }else if(t<u.idleUntil){
+        const sensor=senses.zombie,dirX=Math.cos(u.angle),dirY=Math.sin(u.angle);
+        const limit=sensor.fov?sensor.sight*HEAD:Infinity;
+        const activePeer=SwarmSimulation.nearest(decisions,['zombie'],u,limit,(q,dx,dy,d2)=>
+          (q.aiState==='Zh'||q.aiState==='Zc'||q.aiState==='Za') &&
+          (!sensor.fov || dx*dirX+dy*dirY>=Math.sqrt(d2)*sensor.coneCos-1e-8),boundary==='wrap'?arena:null);
+        if(activePeer)u.idleUntil=0;
+      }
+      return;
+    }
     if(u.type==='human'){
+      u.danger=findTarget(u,kindRules.human.threat,Infinity);
       if(u.incubation!==null)return;
       if(u.danger){
         const [dx,dy]=displacement(u,u.danger);
@@ -662,21 +704,29 @@
       }
       return;
     }
-    if(u.type==='zombie' && t<u.idleUntil && !config.idleInterrupt && senses.zombie.fov){u.target=null;return;}
     const old=u.target;
-    let valid=eligible(u,old) && old.revision===u.targetVersion;
-    const oldDelta=valid?displacement(u,old):null;
-    valid=valid && detect(u,...oldDelta);
-    if(!valid || t>=u.lockUntil){
-      const nearest=findTarget(u,kindRules[u.type].prey,Infinity,q=>q.incubation===null);
-      if(!valid)u.target=nearest;
-      else if(nearest && nearest!==old && Math.hypot(...displacement(u,nearest))<Math.hypot(...oldDelta)*(1-config.retarget/100))u.target=nearest;
-    }
-    if(u.target && (u.target!==old || !valid)){
-      u.targetVersion=u.target.revision;u.trackedAt=t;
-      const [lo,hi]=outbreak?fixationLimits():[0,0];u.lockUntil=t+lo+random()*(hi-lo);
-    }
-    if(u.target){u.searchUntil=t+(config.huntTime||0)/1000;u.idleUntil=0;}
+    const oldDelta=eligible(u,old)?displacement(u,old):null;
+    const valid=oldDelta && detect(u,...oldDelta);
+    const nearest=findTarget(u,kindRules[u.type].prey,Infinity);
+    if(!valid){
+      u.target=nearest;u.challenger=null;
+    }else if(nearest && nearest!==old &&
+        Math.hypot(...displacement(u,nearest))<Math.hypot(...oldDelta)*(1-config.retarget/100)){
+      if(nearest!==u.challenger){u.challenger=nearest;u.challengerSince=t;}
+      if((t-u.challengerSince)*1000+1e-7>=config.retargetDelay){u.target=nearest;u.challenger=null;}
+    }else u.challenger=null;
+    if(u.target)u.targetVersion=u.target.revision;
+
+    // Avoid an immediate predator, or one between the hunter and its prey.
+    const [px,py]=u.target?displacement(u,u.target):[0,0];
+    const path2=px*px+py*py,urgent=config.threat*HEAD;
+    const danger=findTarget(u,kindRules[u.type].threat,Math.max(urgent,Math.sqrt(path2)),(q,dx,dy,d2)=>{
+      if(d2<=urgent*urgent)return true;
+      const along=dx*px+dy*py,cross=dx*py-dy*px;
+      return along>0 && along<path2 && cross*cross<=CATCH*CATCH*path2;
+    });
+    if(danger){u.danger=danger;u.dangerUntil=t+.35;}
+    else if(t>=u.dangerUntil || !u.danger || !kindRules[u.type].threat.includes(u.danger.type))u.danger=null;
   }
   function steer(u,angle,speed,dt) {
     const p=u.body.position;
@@ -700,7 +750,8 @@
     return rates.flee*(rates.minimum+(1-rates.minimum)*u.stamina/100);
   }
   let rates={}, boundary='walls';
-  function movement(dt,peaceful) {
+  function movement(dt,peaceful,gpuMotion) {
+    let offset=0;
     const interval=aiInterval();
     if(!peaceful && (dirtyTrees || (stepNumber-1)%interval===0)){decisions=SwarmSimulation.trees(units);dirtyTrees=false;}
     rates={rps:rpsSpeed(),wander:wanderSpeed(),flee:fleeSpeed(),zombie:zombieSpeed(),
@@ -708,36 +759,46 @@
     for(const u of units){
       const invalid=u.target && (!eligible(u,u.target)||u.target.revision!==u.targetVersion);
       if(!peaceful && (invalid||u.sequence%interval===(stepNumber-1)%interval))decide(u);
-      let angle=u.angle,speed=rates.rps;
+      let angle=u.angle,speed=rates.rps,instantEscape=false;
       if(!senses[u.type].enabled){
         u.target=u.danger=null;speed=0;
-        assignState(u,u.type==='zombie'?'Zi':u.type==='human'?(u.incubation===null?'H':'Hi'):'idle');
+        assignState(u,u.type==='zombie'?(u.aiState==='Zi'?'Zi':'Z'):u.type==='human'?(u.incubation===null?'H':'Hi'):'idle');
       } else if(u.type==='human'){
         const scared=!!u.danger || t<u.fearUntil;
         assignState(u,u.incubation!==null?'Hi':scared?'Hs':'H');
         angle=scared?u.heading:wander(u);speed=scared?scaredSpeed(u,dt):rates.wander;
         if(!scared){u.stamina=Math.min(100,u.stamina+dt*rates.drain*.35);if(t>=u.restingUntil)u.restState=false;}
       } else if(u.type==='zombie'){
+        if(u.biteTarget?.type==='zombie'){u.biteTarget=null;u.attackUntil=0;}
         if(u.target){
           const [dx,dy]=displacement(u,u.target);angle=Math.atan2(dy,dx);
           speed=rates.zombie*(Math.hypot(dx,dy)<=rates.boostRange?rates.boost:1);
-          assignState(u,t<u.attackUntil?'Za':t-u.trackedAt>=config.acquire/1000?'Zc':'Zh');
+          assignState(u,t<u.attackUntil?'Za':'Zc');
         } else if(t<u.attackUntil){assignState(u,'Za');speed=0;}
         else if(t<u.idleUntil){assignState(u,'Zi');speed=0;}
         else {
           if(!u.searchUntil)u.searchUntil=t+config.huntTime/1000;
-          if(t>=u.searchUntil){u.idleUntil=t+rollTime(config.idleMin,config.idleMax);u.searchUntil=0;}
-          assignState(u,u.idleUntil>t?'Zi':'Zh');angle=wander(u);speed=u.aiState==='Zi'?0:rates.zombie*.55;
+          if(t>=u.searchUntil){u.nextWander=t;u.searchUntil=t+config.huntTime/1000;}
+          assignState(u,'Zh');angle=wander(u);speed=rates.zombie*.55;
         }
       } else {
-        const danger=u.danger && kindRules[u.type].threat.includes(u.danger.type) &&
-          Math.hypot(...displacement(u,u.danger))<=config.threat*HEAD ? u.danger:null;
+        const danger=u.danger && kindRules[u.type].threat.includes(u.danger.type)?u.danger:null;
         const other=danger||u.target;
         if(other){const [dx,dy]=displacement(u,other);angle=Math.atan2(dy,dx)+(danger?Math.PI:0);}
         else angle=wander(u);
+        if(danger && Math.cos(angle-u.angle)<0){u.angle=angle;instantEscape=true;}
         assignState(u,danger?'flee':u.target?'pursue':'wander');
       }
-      steer(u,angle,speed,dt);
+      // A new decision can change the predicted heading, and fast wall approaches
+      // use a speed-dependent margin. Resolve those steering changes immediately.
+      const atFastWall=gpuMotion && boundary==='walls' && speed*dt>1 &&
+        Math.min(u.body.position[0]-arena.left,arena.right-u.body.position[0],
+          u.body.position[1]-arena.top,arena.bottom-u.body.position[1])<=RADIUS+speed*dt;
+      if(gpuMotion && !instantEscape && angle===gpuGoals[offset/4] && !atFastWall){
+        u.angle+=gpuMotion[offset];u.body.velocity[0]=gpuMotion[offset+1]*speed;u.body.velocity[1]=gpuMotion[offset+2]*speed;
+        gpuAgents++;
+      }else steer(u,angle,speed,dt);
+      offset+=4;
     }
   }
   function boundsAndRender() {
@@ -757,6 +818,7 @@
         teleport(u, p[0], p[1]);
       }
       u.body.aabbNeedsUpdate = true;
+      if(!u.holder)continue;
       u.holder.position.set(p[0], p[1]);
       const target = u.angle + u.facingOffset;
       const delta = Math.atan2(Math.sin(target - u.holder.rotation), Math.cos(target - u.holder.rotation));
@@ -779,7 +841,7 @@
         const h=a.type==='human'?a:b,z=a.type==='zombie'?a:b;
         if(h.immuneUntil>t || !senses.zombie.enabled)return;
         const list=bites.get(h)||[];list.push([lo,hi]);bites.set(h,list);
-        z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
+        z.biteTarget=h;z.idleUntil=0;z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
       } else {
         const winner=beats(a.type,b.type)?a:beats(b.type,a.type)?b:null;
         if(!winner)return;
@@ -871,14 +933,29 @@
 
   const profile={steps:0,ai:0,physics:0,contacts:0,renderSync:0};
   let impulse=null,profiling=false;
-  function step(dt) {
+  let physicsView=null;
+  world?.on('postBroadphase',({pairs})=>{
+    if(!physicsView)return;
+    const inside=body=>{
+      const [x,y]=body.position,v=body.velocity;
+      return SwarmCircles.crossesView(x,y,x+v[0]*DT,y+v[1]*DT,physicsView,RADIUS);
+    };
+    let write=0;
+    for(let i=0;i<pairs.length;i+=2){
+      if(!inside(pairs[i]) && !inside(pairs[i+1]))continue;
+      pairs[write++]=pairs[i];pairs[write++]=pairs[i+1];
+    }
+    pairs.length=write;
+  });
+  function step(dt,gpuMotion=null) {
     stepNumber++;
     const start=profiling?performance.now():0;
     const peaceful=isZombieMode() && !seeded;
-    movement(dt,peaceful);
+    movement(dt,peaceful,gpuMotion);
     if(impulse){units[0].body.velocity[0]=impulse[0];units[1].body.velocity[0]=impulse[1];impulse=null;}
     const brainEnd=profiling?performance.now():0;
     for(const u of units){u._stepX=u.body.position[0];u._stepY=u.body.position[1];}
+    physicsView=$('offscreenPhysics').checked?null:visibleWorld();
     if (solver==='p2') world.step(dt);
     else {
       physicalPairs.clear();
@@ -886,7 +963,7 @@
       SwarmCircles.step(units,dt,RADIUS,(a,b)=>{
         const k=contactKey(a,b);physicalPairs.set(k,[a,b]);
         (a.pairKeys??=new Set()).add(k);(b.pairKeys??=new Set()).add(k);
-      });
+      },physicsView);
     }
     const physicsEnd=profiling?performance.now():0;
     boundsAndRender();
@@ -926,7 +1003,8 @@
   }
   let lastInputWorld = null;
   function paint(point, spray = false) {
-    const { closest, at } = nearestAt(point);
+    const burstPaint=!focusArmed && (spray || $('massSpawn').checked);
+    const {closest,at}=burstPaint?{closest:null,at:pointerWorld(point)}:nearestAt(point);
     lastInputWorld = at;
     if (focusArmed) {
       if (closest) setFocus(closest);
@@ -946,7 +1024,7 @@
     const now = performance.now();
     if (spray && now - lastPaint < Number($('spawnRate').value)) return;
     lastPaint = now;
-    if (spray) {
+    if (burstPaint) {
       const burst = Math.max(1, Math.min(250, Number($('spawnBurst').value) || 1));
       const spread = Number($('spawnSpread').value) * HEAD;
       for (let i = 0; i < burst && units.length < maxCreatures; i++) {
@@ -1197,6 +1275,67 @@
     setScaleAt(event.clientX, event.clientY, Math.exp(-event.deltaY * .0012));
   }, { passive: false });
 
+  function movementBackend(){
+    const choice=$('movementBackend').value;
+    if(choice!==gpuChoice){
+      gpuChoice=choice;motionEpoch++;gpuFailure='';
+      if(choice==='cpu'){gpuDevice?.dispose();gpuDevice=null;}
+    }
+    let status='CPU movement';
+    if(choice==='gpu'){
+      if(gpuFailure)status+=' · '+gpuFailure;
+      else if(!gpuDevice){
+        status+=' · starting WebGPU';
+        if(!gpuOpening){
+          gpuOpening=true;
+          SwarmSteeringGPU.open(reason=>{gpuFailure=reason;gpuDevice=null;motionEpoch++;})
+            .then(engine=>{if(gpuChoice==='gpu')gpuDevice=engine;else engine.dispose();})
+            .catch(err=>{gpuFailure=err.message;}).finally(()=>{gpuOpening=false;});
+        }
+      }else status='GPU steering · CPU decisions and collisions';
+    }
+    if($('movementStatus').textContent!==status)$('movementStatus').textContent=status;
+    return choice==='gpu'?gpuDevice:null;
+  }
+  function predictHeading(u){
+    if(!senses[u.type].enabled)return u.angle;
+    if(u.type==='human')return u.danger || t+DT<u.fearUntil?u.heading:u.wanderHeading;
+    if(u.type==='zombie'){
+      if(!u.target)return t+DT<u.attackUntil || t+DT<u.idleUntil?u.angle:u.wanderHeading;
+      const [dx,dy]=displacement(u,u.target);
+      return Math.atan2(dy,dx);
+    }
+    if(u.danger && kindRules[u.type].threat.includes(u.danger.type)){
+      const [dx,dy]=displacement(u,u.danger);
+      return Math.atan2(dy,dx)+Math.PI;
+    }
+    if(!u.target)return u.wanderHeading;
+    const [dx,dy]=displacement(u,u.target);
+    return Math.atan2(dy,dx);
+  }
+  async function advanceGPU(engine,deadline){
+    gpuPending=true;
+    try{
+      do{
+        const version=motionEpoch,n=units.length, before=t;
+        if(!n)return;
+        if(gpuInput.length<4*n){gpuInput=new Float32Array(4*n);gpuGoals=new Float64Array(n);}
+        const cx=(arena.left+arena.right)/2,cy=(arena.top+arena.bottom)/2;
+        for(let i=0;i<n;i++){
+          const u=units[i],p=u.body.position,j=i*4;
+          gpuInput[j]=p[0]-cx;gpuInput[j+1]=p[1]-cy;
+          gpuGoals[i]=predictHeading(u);gpuInput[j+2]=u.angle;gpuInput[j+3]=gpuGoals[i];
+        }
+        const data=await engine.calculate(gpuInput,n,[arena.width/2,arena.height/2,
+          RADIUS+1,config.turnRate*Math.PI/180*DT],boundary==='walls');
+        // Input, a new round, or patient zero can arrive while the buffer is mapped.
+        if(version!==motionEpoch || engine!==gpuDevice || before!==t || state!=='running')return;
+        t+=DT;step(DT,data);accumulator-=DT;gpuSteps++;
+      }while(accumulator+1e-9>=DT && performance.now()<deadline);
+    }catch(err){
+      if(engine===gpuDevice){gpuFailure=err.message;gpuDevice=null;engine.dispose();}
+    }finally{gpuPending=false;}
+  }
   app.ticker.add(tick => {
     if (leftDown && brush && !focusArmed && lastLeftPoint &&
         performance.now() - leftDownAt > 240 &&
@@ -1219,13 +1358,16 @@
       const p=pointerSession.lastPoint;
       paint({clientX:p.x,clientY:p.y},true);
     }
+    const engine=movementBackend();
     if (state === 'running') {
       const speed=Number($('speed').value);
       accumulator=Math.min(accumulator+Math.min(tick.elapsedMS/1000,.15)*speed,DT*config.maxSteps);
       // Fast-forward can spend more of a frame on complete fixed steps.
       const budget=Math.max(config.frameBudget,Math.min(60,config.frameBudget*speed));
       const deadline=performance.now()+budget;
-      while(accumulator+1e-9>=DT && state==='running'){
+      if(engine){
+        if(!gpuPending && accumulator+1e-9>=DT)void advanceGPU(engine,deadline);
+      }else while(accumulator+1e-9>=DT && state==='running'){
         t+=DT;step(DT);accumulator-=DT;
         if(performance.now()>=deadline){accumulator=Math.min(DT,accumulator);break;}
       }
@@ -1236,7 +1378,7 @@
     if (focusedUnit) {
       centerOnFocus();
       $('focusStatus').textContent = ' · Following ' +
-        (get(modeKey('inspect'))?focusedUnit.type+' #'+focusedUnit.sequence+' · '+focusedUnit.aiState+' · target '+(focusedUnit.target?.sequence??'—')+' · '+(senses[focusedUnit.type].fov?'limited FOV':'360° unlimited')+' · brain '+((aiInterval()+focusedUnit.sequence-(stepNumber%aiInterval()))%aiInterval()*DT).toFixed(2)+' s · idle '+Math.max(0,focusedUnit.idleUntil-t).toFixed(1)+' s · fear '+Math.max(0,focusedUnit.fearUntil-t).toFixed(1)+' s · exposure '+Math.round(focusedUnit.exposure)+' ms · incubation '+(focusedUnit.incubation===null?'—':Math.ceil(focusedUnit.incubation)+' ms'):focusedUnit.type);
+        (get(modeKey('inspect'))?focusedUnit.type+' #'+focusedUnit.sequence+' · '+(V.stateLabels[focusedUnit.aiState]||focusedUnit.aiState)+' · target '+(focusedUnit.target?.sequence??'—')+' · '+(senses[focusedUnit.type].fov?'limited FOV':'360° unlimited')+' · brain '+((aiInterval()+focusedUnit.sequence-(stepNumber%aiInterval()))%aiInterval()*DT).toFixed(2)+' s · idle '+Math.max(0,focusedUnit.idleUntil-t).toFixed(1)+' s · fear '+Math.max(0,focusedUnit.fearUntil-t).toFixed(1)+' s · exposure '+Math.round(focusedUnit.exposure)+' ms · incubation '+(focusedUnit.incubation===null?'—':Math.ceil(focusedUnit.incubation)+' ms'):focusedUnit.type);
     }
     drawCrosshairs();
   });
@@ -1252,8 +1394,9 @@
         setState('paused');update(true);
       },
       move:(i,x,y)=>teleport(units[i],x-origin.x,y-origin.y),
+      appearance:i=>({tint:units[i].sprite?.tint,marker:units[i].aiState==='Hi'?infectedYellow:COLORS[units[i].type]}),
       profile:enabled=>{profiling=!!enabled;return {...profile,buildMs:lastBuildMs};},
-      round:()=>({roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,solver,bodies:solver==='p2'?world.bodies.length:units.length,retired:retired.length}),
+      round:()=>({gpuSteps,gpuAgents,roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,solver,bodies:solver==='p2'?world.bodies.length:units.length,retired:retired.length}),
 
       pointerWorld: (x, y) => pointerWorld({ clientX:x, clientY:y }),
       screenPoint, zoom: () => scale,
@@ -1326,6 +1469,7 @@
         index();
       }
       redraw();drawVision();drawCrosshairs();
+      rememberWalls();
       notice('Arena resized to view · '+moves.length+' relocated.');
     } catch (error) { notice(error.message); }
   };
@@ -1347,6 +1491,7 @@
   };
   $('showFov').onchange = drawVision;
   $('showHearing').onchange = drawVision;
+  $('movementBackend').oninput=movementBackend;
   $('speed').oninput = () => { $('speedValue').textContent = $('speed').value + '×'; resetPlaybackRate(); };
   $('headsAcross').oninput = () => {
     $('headsAcrossValue').textContent = $('headsAcross').value;
@@ -1357,8 +1502,8 @@
     ['wanderSpeed',''],['fleeSpeed',''],['zombieSpeed',''],
     ['staminaStart','%'],['staminaDrain','%/s'],['staminaRest','s'],['staminaMinSpeed','%'],
     ['zombieBoostRange',' heads'],['zombieBoostFactor','×'],['aiInterval',' frames'],
-    ['spawnBurst','/tick'],
-    ['fixationMin','s'],['fixationMax','s'],['spawnRate','ms'],['spawnSpread',' heads']
+    ['spawnBurst','/burst'],
+    ['spawnRate','ms'],['spawnSpread',' heads']
   ]) $(id).oninput = () => { $(id + 'Value').textContent = $(id).value + suffix; };
   for (const [panel, id] of [['statsPanel','statsOpacity'],['spawnPanel','spawnOpacity']]) {
     const slider = $(id);
@@ -1481,6 +1626,7 @@
   }
   S.subscribe((paths,source)=>{
     if(!paths.length)return;
+    motionEpoch++;
     if(paths.some(p=>p.startsWith(modeKey('ai.'))||Object.hasOwn(config,p.slice(modeKey('').length))))refreshConfig();
     if(source==='game')return;
     if(paths.includes('theme.id'))serialized(switchTheme);

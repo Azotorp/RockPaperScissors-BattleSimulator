@@ -2,8 +2,8 @@
 window.SwarmBuild=Object.freeze({
   product:'Swarm Arena',
   channel:'dev',
-  version:'0.3.0-dev.7',
-  baseCommit:'c07fc771861d954fd2ce3a7707f7a4f01cd79305',
-  notes:'Faster large human crowds, speed-aware catch-up and measured playback speed.',
+  version:'0.3.0-dev.8',
+  baseCommit:'040e08c48cc41b84f4995522cc64e55e0c8ba2cc',
+  notes:'Optional GPU steering, offscreen collision control, remembered walls, yellow infection markers and expanded population and speed controls.',
   releaseDate:'2026-11-20'
 });

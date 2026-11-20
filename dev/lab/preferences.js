@@ -9,15 +9,15 @@ window.SwarmLabPreferences=(()=>{
       Object.keys(v).length===Object.keys(defaults).length &&
       Object.keys(allowed).every(k=>allowed[k].includes(v[k]));
   }
-  function read(){
+  function read(siteDefaults=defaults){
     try{
       const stored=JSON.parse(localStorage.getItem(key));
       const record=stored?.preferences?.[path];
       if(valid(record))return record;
-      const old={...defaults,...JSON.parse(localStorage.getItem(legacy))};
+      const old={...siteDefaults,...JSON.parse(localStorage.getItem(legacy))};
       if(valid(old))return old;
     }catch{}
-    return {...defaults};
+    return {...siteDefaults};
   }
   async function write(values){
     if(!valid(values))return;

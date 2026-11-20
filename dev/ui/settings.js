@@ -28,15 +28,17 @@ window.SwarmSettings = (() => {
       for(const [name,,value,lo,hi,step] of items) option(name,numeric(value,lo,hi,step));
     }
     if(mode==='zombie'){
-      option('idleInterrupt',bool(true));option('spreadFear',bool(true));
-      option('initialZombies',numeric(0,0,15000,1));
+      option('spreadFear',bool(true));
+      option('initialZombies',numeric(0,0,999999,1));
     }
+    option('arenaBounds',{d:null,valid:v=>v===null || (Array.isArray(v) && v.length===7 &&
+      v.every(n=>Number.isFinite(n) && Math.abs(n)<=1e17) && v[2]>v[0] && v[3]>v[1] && v[6]>0)});
     option('seedMode',choice('random',['random','fixed']));
     option('seed',{d:'swarm',valid:v=>typeof v==='string' && v.length<=128});
     option('distribution',choice('jitter',['jitter','grid']));
     option('inspect',bool(false));
     for(const kind of kinds){
-      if(mode!=='zombie')option('count.'+kind,numeric(-1,-1,15000,1));
+      if(mode!=='zombie')option('count.'+kind,numeric(-1,-1,999999,1));
       const prefix='ai.'+kind+'.';
       option(prefix+'enabled',bool(true));option(prefix+'fov',bool(mode==='zombie'));
       option(prefix+'angle',numeric(90,1,360,1));option(prefix+'sight',numeric(5,0,100,.25));
@@ -57,6 +59,10 @@ window.SwarmSettings = (() => {
     register('hud.'+widget+'.exit',numeric(2000,0,30000,1));
   }
   for (const part of ['bar','text','toolbar','states']) register('hud.'+part+'.transparency',numeric(0,0,100,1));
+  register('hud.backgroundTransparency',numeric(100,0,100,1));
+  const overlays=['statsPanel','spawnPanel','arenaDistribution','stateLegend','settingsOpen','settingsWindow','diagram','prestart','result','launchers','viewStatus','storageWarning','debugMsg','edge-population','edge-toolbar','edge-states'];
+  for(const id of overlays)register('hud.layout.'+id,{d:null,valid:v=>v===null ||
+    (Array.isArray(v) && v.length===2 && v.every(n=>Number.isFinite(n)&&n>=0&&n<=1))});
   register('hud.states.visible',bool(true));
   register('hud.states.expanded',bool(false));
   for (const id of ['statsPanel','spawnPanel']) register('hud.'+id,choice('auto',['auto','open','closed']));
@@ -96,6 +102,7 @@ window.SwarmSettings = (() => {
       const retired=['crowdFlanking','crowdThreshold','alternateRange','scoutChance','scoutDuration','fovAngle','fovRange','hearingRange'];
       for(const m of modes)for(const name of retired)delete f[modePath(m,name)];
     } else if(record.schemaVersion!==version) throw Error('Unsupported settings version');
+    for(const path of Object.keys(record.preferences))if(/^modes\.(3|5|zombie)\.(fixationMin|fixationMax|acquire|idleInterrupt)$/.test(path))delete record.preferences[path];
     if(installedOnly) return Object.fromEntries(Object.entries(record.preferences).filter(([p,v])=>schema.get(p)?.valid(v)));
     return validate(record.preferences);
   }
@@ -176,11 +183,18 @@ window.SwarmSettings = (() => {
       if(el.type==='checkbox') el.checked=v; else el.value=v;
     }
   }
+  const ready=(async()=>{
+    try{
+      const response=await fetch('default.config.json',{cache:'no-cache'});
+      if(!response.ok)throw Error('HTTP '+response.status);
+      Object.assign(defaults,decode(await response.text()));
+    }catch(error){warn('Site defaults could not be loaded. '+error.message);}
+  })();
   loadSettings();
   restoreControls(getSetting('game.mode'));
   window.addEventListener('pagehide',flushNow);
   document.addEventListener('visibilitychange',()=>{if(document.hidden) flushNow();});
-  return {key,version,modes,modePath,pathFor,valueOf,controls,schema,getSetting,setSetting,loadSettings,restoreControls,
+  return {ready,overlays,key,version,modes,modePath,pathFor,valueOf,controls,schema,getSetting,setSetting,loadSettings,restoreControls,
     resetSetting,clearAll,exportSettings,importSettings,flush,subscribe:fn=>(listeners.add(fn),()=>listeners.delete(fn)),
     status:()=>({available,warning,savedKeys:[...new Set([...Object.keys(saved),...pending.keys()])].filter(p=>!pending.has(p)||pending.get(p)!==undefined)})};
 })();

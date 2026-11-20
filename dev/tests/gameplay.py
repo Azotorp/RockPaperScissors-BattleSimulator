@@ -46,6 +46,25 @@ async def main():
             d.stepSimulation(600);
             if(d.units()[1].type!=='zombie')throw Error(solver+' incubation');
           }
+          for(const mode of ['3','5']){
+            s.setSetting('game.mode',mode);opt('solver','cpu');opt('boundaryMode','none');
+            opt('aiInterval',1);opt('ai.rock.sight',20);opt('ai.rock.hearing',0);
+            for(const fov of [false,true]){
+              opt('ai.rock.fov',fov);reset.click();
+              d.scenario([['rock',300,300],['paper',380,300],['scissors',460,300]]);
+              d.stepSimulation(1);const rock=d.units()[0];
+              if(rock.ai!=='flee' || rock.vx>=0)throw Error(mode+' predator between rock and prey, fov '+fov);
+            }
+          }
+          s.setSetting('game.mode','3');opt('ai.rock.fov',false);opt('ai.scissors.enabled',false);
+          opt('retargetDelay',350);opt('retarget',10);reset.click();
+          d.scenario([['rock',300,300],['scissors',440,300],['scissors',490,300]]);
+          d.stepSimulation(1);d.move(2,380,300);d.stepSimulation(6);
+          if(d.units()[0].target!==1)throw Error('transient prey stole target');
+          d.move(2,490,300);d.stepSimulation(1);d.move(2,380,300);d.stepSimulation(16);
+          if(d.units()[0].target!==1)throw Error('switch timer failed to restart');
+          d.stepSimulation(10);
+          if(d.units()[0].target!==2 || Math.abs(d.units()[0].vy)>1e-6)throw Error('stable straight pursuit');
           s.setSetting('game.mode','3');opt('solver','cpu');opt('seedMode','fixed');opt('seed','replay');
           const replay=()=>{reset.click();d.stepSimulation(45);return JSON.stringify(d.units());};
           if(replay()!==replay())throw Error('CPU seed replay diverged');

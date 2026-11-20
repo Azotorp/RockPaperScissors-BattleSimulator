@@ -1,9 +1,15 @@
 // Fixed-step equal-mass circles in chunk-local double precision.
 (() => {
   'use strict';
-  function step(units, dt, radius, contact) {
+  function crossesView(x,y,endX,endY,view,pad){
+    return Math.max(x,endX)+pad>=view.left && Math.min(x,endX)-pad<=view.right &&
+      Math.max(y,endY)+pad>=view.top && Math.min(y,endY)-pad<=view.bottom;
+  }
+  function step(units, dt, radius, contact, view=null) {
     if (!units.length) return;
     const diameter=2*radius;
+    const visible=view?new Uint8Array(units.length):null;
+    let inView=0;
     let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     let travel=0;
     const key=(x,y)=>x+','+y;
@@ -15,7 +21,11 @@
       minY=Math.min(minY,row);maxY=Math.max(maxY,row);
       travel=Math.max(travel,Math.hypot(v[0],v[1])*dt);
       p[0]+=v[0]*dt;p[1]+=v[1]*dt;
+      if(view && crossesView(b.previousPosition[0],b.previousPosition[1],p[0],p[1],view,radius)){
+        visible[i]=1;inView++;
+      }
     }
+    if(view && !inView)return;
     // Use contiguous buckets for a compact arena and sparse keys for distant groups.
     // Reverse insertion keeps the CPU and GPU contact visitation order identical.
     const width=maxX-minX+1,area=width*(maxY-minY+1);
@@ -24,7 +34,8 @@
     const next=new Uint32Array(units.length);
     let occupied=0;
     for(let i=units.length-1;i>=0;i--){
-      const p=units[i].body.previousPosition;
+      const b=units[i].body,p=b.previousPosition;
+      if(view && !visible[i] && !crossesView(p[0],p[1],b.position[0],b.position[1],view,3*radius+2*travel))continue;
       const x=Math.floor(p[0]/diameter),y=Math.floor(p[1]/diameter);
       if(compact){
         const k=(y-minY)*width+(x-minX);
@@ -36,7 +47,7 @@
       if(!next[i])occupied++;
     }
     function resolve(i,j) {
-      if(j<=i)return;
+      if(j<=i || (view && !visible[i] && !visible[j]))return;
       const a=units[i].body,b=units[j].body,p=a.position,q=b.position;
       const x0=b.previousPosition[0]-a.previousPosition[0], y0=b.previousPosition[1]-a.previousPosition[1];
       const dx=q[0]-p[0],dy=q[1]-p[1];
@@ -67,6 +78,7 @@
     }
     for(let i=0;i<units.length;i++){
       const b=units[i].body,[x,y]=b.previousPosition;
+      if(view && !visible[i] && !crossesView(x,y,b.position[0],b.position[1],view,3*radius+2*travel))continue;
       const range=diameter+travel+Math.hypot(b.position[0]-x,b.position[1]-y);
       const left=Math.floor((x-range)/diameter), right=Math.floor((x+range)/diameter);
       const top=Math.floor((y-range)/diameter), bottom=Math.floor((y+range)/diameter);
@@ -81,7 +93,7 @@
       }
     }
   }
-  const api={step};
+  const api={step,crossesView};
   if(typeof module!=='undefined')module.exports=api;
   else window.SwarmCircles=api;
 })();
