@@ -156,7 +156,11 @@
     for(const u of units){
       const x=camera.x+u.body.position[0]*scale,y=camera.y+u.body.position[1]*scale;
       const visible=x>=-pad&&x<=app.screen.width+pad&&y>=-pad&&y<=app.screen.height+pad;
-      u.holder.visible=!tiny&&visible;
+      const spriteVisible=!tiny&&visible;
+      if(typeof u.sprite.play==='function' && typeof u.sprite.stop==='function' && u.sprite.playing!==spriteVisible){
+        if(spriteVisible)u.sprite.play();else u.sprite.stop();
+      }
+      u.holder.visible=spriteVisible;
       u.sprite.visible=!tiny;
       if(u.fearGlow)u.fearGlow.visible=!tiny&&u.scared;
       if(tiny && visible){
@@ -579,6 +583,7 @@
     if(isZombieMode())for(const k of ['idleInterrupt','spreadFear'])config[k]=get(modeKey(k));
     for(const kind of active()) {
       senses[kind]=Object.fromEntries(['enabled','fov','angle','sight','hearing'].map(k=>[k,get(modeKey('ai.'+kind+'.'+k))]));
+      senses[kind].coneCos=Math.cos(senses[kind].angle*Math.PI/360);
       kindRules[kind]=isZombieMode()?{prey:kind==='zombie'?['human']:[],threat:kind==='human'?['zombie']:[]}:
         {prey:active().filter(q=>beats(kind,q)),threat:active().filter(q=>beats(q,kind))};
     }
@@ -593,9 +598,13 @@
   function detect(u,dx,dy) {return SwarmSimulation.canDetect(senses[u.type],dx,dy,u.angle,HEAD);}
   function findTarget(u,types,radius,accept=()=>true) {
     const sensor=senses[u.type];
-    const range=sensor.fov?Math.min(radius,HEAD*Math.max(sensor.sight,sensor.hearing)):radius;
-    return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy)=>accept(q) && detect(u,dx,dy),
-      boundary==='wrap'?arena:null);
+    const wrap=boundary==='wrap'?arena:null;
+    if(!sensor.fov)return SwarmSimulation.nearest(decisions,types,u,radius,accept,wrap);
+    const facingX=Math.cos(u.angle),facingY=Math.sin(u.angle);
+    const hearing2=(HEAD*sensor.hearing)**2,sight2=(HEAD*sensor.sight)**2;
+    const range=Math.min(radius,HEAD*Math.max(sensor.sight,sensor.hearing));
+    return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy,d2)=>
+      (d2<=hearing2 || (d2<=sight2 && dx*facingX+dy*facingY>=Math.sqrt(d2)*sensor.coneCos-1e-8)) && accept(q),wrap);
   }
   function rollTime(a,b){return (Math.min(a,b)+random()*Math.abs(b-a))/1000;}
   function wander(u){
@@ -830,6 +839,7 @@
       const p = u.body.position;
       const sen=senses[u.type];if(!sen?.fov)continue;
       const distance=sen.sight*HEAD,radius=sen.hearing*HEAD,half=sen.angle*Math.PI/360,padding=Math.max(distance,radius);
+      if (padding*scale < 1) continue;
       if (p[0] < view.left-padding || p[0] > view.right+padding ||
           p[1] < view.top-padding || p[1] > view.bottom+padding) continue;
       const color = u.type === 'zombie' ? ink['vision-zombie'] : u.scared ? ink['vision-scared'] : ink['vision-human'];

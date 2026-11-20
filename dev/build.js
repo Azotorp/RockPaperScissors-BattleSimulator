@@ -2,8 +2,8 @@
 window.SwarmBuild=Object.freeze({
   product:'Swarm Arena',
   channel:'dev',
-  version:'0.3.0-dev.4',
-  baseCommit:'ae4821c8246685a88e337e9695a2a94b0448f0bb',
-  notes:'Seeded swarm CPU solver, optional p2 comparison, and a WebGPU targeting and movement prototype.',
+  version:'0.3.0-dev.5',
+  baseCommit:'6542744845c93be9580587916bbcb80e536cfd5d',
+  notes:'Portal-aware GPU pursuit, five species, directional perception, compact visible draws and optional reduced-rate distant decisions.',
   releaseDate:'2026-11-19'
 });

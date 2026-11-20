@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),{step}=require('../sim/circles');
-function run() {
-  const units=[[-20,1800],[20,-1800],[80,0]].map(([x,v])=>({body:{position:[x,0],previousPosition:[x,0],velocity:[v,0]}}));
+function run(speed=1800) {
+  const units=[[-20,speed],[20,-speed],[80,0]].map(([x,v])=>({body:{position:[x,0],previousPosition:[x,0],velocity:[v,0]}}));
   const hits=[];
   step(units,1/60,3,(a,b)=>hits.push([units.indexOf(a),units.indexOf(b)]));
   assert.deepEqual(hits,[[0,1]]);
@@ -10,4 +10,5 @@ function run() {
   return units;
 }
 assert.deepEqual(run(),run());
+run(1300);
 console.log('PASS swept CPU circle impact and deterministic repeat');

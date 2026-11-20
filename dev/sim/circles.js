@@ -20,7 +20,7 @@
       const x0=b.previousPosition[0]-a.previousPosition[0], y0=b.previousPosition[1]-a.previousPosition[1];
       const dx=q[0]-p[0],dy=q[1]-p[1];
       let nx=dx,ny=dy,length=Math.hypot(dx,dy);
-      if (length>diameter) {
+      if (x0*x0+y0*y0>diameter*diameter) {
         // Swept relative segment against the sum of radii.
         const vx=dx-x0,vy=dy-y0,aa=vx*vx+vy*vy,dot=x0*vx+y0*vy;
         if (!aa || dot>=0)return;
@@ -29,7 +29,7 @@
         const t=(-dot-Math.sqrt(disc))/aa;
         if(t<0 || t>1)return;
         nx=x0+t*vx;ny=y0+t*vy;length=Math.hypot(nx,ny);
-      }
+      } else if(length>diameter) return;
       if(length>1e-12){nx/=length;ny/=length;}
       else {nx=1;ny=0;}
       const push=Math.max(0,(diameter-dx*nx-dy*ny)/2);

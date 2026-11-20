@@ -49,6 +49,7 @@ window.SwarmSettings = (() => {
     register(modePath(mode,'diagramOpacity'),numeric(34,0,100,1));
     register(modePath(mode,'camera'),{d:{x:0,y:0,zoom:1},valid:v=>v && Object.keys(v).length===3 && [v.x,v.y,v.zoom].every(Number.isFinite) && Math.abs(v.x)<=1e17 && Math.abs(v.y)<=1e17 && v.zoom>=1e-12 && v.zoom<=1e5});
   }
+  register(SwarmLabPreferences.path,{d:SwarmLabPreferences.defaults,valid:SwarmLabPreferences.valid});
   register('theme.id',choice('classic',Object.keys(SwarmRegistry)));
   for (const widget of ['population','toolbar','states']) {
     register('hud.'+widget+'.auto',bool(false));
@@ -102,6 +103,11 @@ window.SwarmSettings = (() => {
     try {
       const raw=localStorage.getItem(key);
       saved=decode(raw,true);
+      if (!saved[SwarmLabPreferences.path] && localStorage.getItem(SwarmLabPreferences.legacy)) {
+        saved[SwarmLabPreferences.path]=SwarmLabPreferences.read();
+        localStorage.setItem(key,JSON.stringify(envelope(saved)));
+        localStorage.removeItem(SwarmLabPreferences.legacy);
+      }
       if(raw && JSON.parse(raw).schemaVersion<version) localStorage.setItem(key,JSON.stringify(envelope(saved)));
       const probe='swarmArena.writeProbe.'+Math.random();
       localStorage.setItem(probe,'1'); localStorage.removeItem(probe);
@@ -152,7 +158,7 @@ window.SwarmSettings = (() => {
   // Explicitly own only these records. Future adapters must extend this list.
   function clearAll() {
     clearTimeout(timer); pending.clear(); saved={};
-    try { localStorage.removeItem(key); blocked=false; available=true; warn(''); }
+    try { localStorage.removeItem(key); localStorage.removeItem(SwarmLabPreferences.legacy); blocked=false; available=true; warn(''); }
     catch(e) { available=false; warn('Local data could not be cleared. '+e.message); }
     notify([...schema.keys()],'clear');
   }

@@ -22,9 +22,10 @@ async def main():
         pg.on('pageerror',lambda e:errors.append(str(e)))
         await pg.goto(ORIGIN+'dev/lab/index.html')
         print(await pg.evaluate("""async()=>{
-          const n=257,extent=600,seed=SwarmLabModel.initial(n,extent,'parity');
-          const cpu=SwarmLabModel.cpu(seed,extent);
-          const gpu=await SwarmLabGPU.open(seed,extent,document.querySelector('canvas'));
+          for(const options of [{},{species:5,wrap:true},{species:5,fov:true},{species:5,wrap:true,fov:true},{species:5,wrap:true,fov:true,cadence:4,zoom:4}]){
+          const n=257,extent=600,seed=SwarmLabModel.initial(n,extent,'parity',options.species||3);
+          const cpu=SwarmLabModel.cpu(seed,extent,options);
+          const gpu=await SwarmLabGPU.open(seed,extent,document.querySelector('canvas'),null,options);
           let error=0;
           for(let step=0;step<12;step++){
             cpu.step();gpu.step();gpu.draw();
@@ -37,7 +38,8 @@ async def main():
             }
           }
           if(!(error<.005))throw Error('GPU movement diverged: '+error);
-          const name=gpu.name;gpu.dispose();return {adapter:name,n,steps:12,maxError:error};
+          gpu.dispose();}
+          return 'Passed 12-step parity in five perception, portal, species and LOD configurations';
         }"""),flush=True)
         await pg.evaluate("""()=>{
           const request=GPUAdapter.prototype.requestDevice;
