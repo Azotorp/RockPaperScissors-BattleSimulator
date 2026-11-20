@@ -31,3 +31,7 @@ Copy `index.html`, `main.js` and the complete `assets/`, `ui/`, and `sim/` direc
 - [Theme manifest schema](docs/theme.schema.json)
 
 Run the pure simulation checks with `node tests/simulation_core.js` and the registry checks with `python tests/theme_registry.py`. Browser tests require Python Playwright, Chromium and Pillow for pixel checks. Set `SWARM_CHROMIUM` to the Chromium executable. Real-engine tests use the production CDN URLs or `SWARM_CDN_CACHE` pointing to cached copies of those exact library versions. Test entry points and results are in the release notes.
+
+## Development channel
+
+The live root remains the stable Phase 2 baseline (designated **v0.2.0**). The self-contained `dev/` build starts at **v0.3.0-dev.1** and maintains independent browser preferences. See [development channel, deployment and versioning](docs/DEV-CHANNEL.md).

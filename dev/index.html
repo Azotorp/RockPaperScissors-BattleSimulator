@@ -1,0 +1,75 @@
+<!doctype html><html lang="en" data-booting><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swarm Arena · Development</title>
+<style>#devBuildBadge{display:inline-block;margin:1px 0 8px;padding:4px 8px;background:#203b60;color:#cbe2ff;border:1px solid #628fc7;border-radius:7px;font:700 10px/1.2 system-ui;letter-spacing:.06em}</style>
+<link rel="stylesheet" id="themeStyle" href="assets/themes/classic/classic.css"><link rel="stylesheet" href="ui/window.css"></head><body>
+<div id="game"></div>
+<div class="arena-distribution" id="arenaDistribution" aria-label="Current species population"><div id="overviewLegend" class="overview-legend"></div><div id="overviewBars" class="overview-bar"></div></div>
+<canvas id="metricMap" aria-hidden="true"></canvas>
+<div class="diagram" id="diagram" aria-hidden="true"></div>
+<section class="panel top" id="statsPanel"><button class="close" data-close="statsPanel" title="Close" aria-label="Close panel"></button><h1>Swarm Arena</h1><div id="devBuildBadge" aria-label="Development release">DEV</div><div class="opacity-control"><label for="statsOpacity">Controls opacity</label><input type="range" id="statsOpacity" min="10" max="100" step="5" value="94" aria-label="Controls panel opacity"><output id="statsOpacityLabel">94%</output></div><p id="modeDescription">Rock · Paper · Scissors · Lizard · Spock</p>
+<div class="row"><label for="mode">Game mode</label><select id="mode"><option value="3" selected>Classic · 3 types</option><option value="5">RPSLS · 5 types</option><option value="zombie">Zombie · Human outbreak</option></select><label for="population" id="populationLabel">Each · next round</label><input id="population" type="number" min="1" max="15000" value="30"></div>
+<p id="roundNotice" role="status" hidden></p><div class="stats" id="stats"></div><div class="bar" id="bars"></div><div class="row"><span class="small" id="total">0 creatures</span><span class="small" id="status">Ready to start</span></div>
+<div class="row"><button class="primary" id="reset">New round</button><button class="go" id="run">GO</button><button id="fit">Fit view</button></div>
+<div class="row"><label for="speed">Speed</label><input id="speed" type="range" min="0.25" max="30" step="0.25" value="1"><span id="speedValue">1×</span></div>
+<div class="row"><label for="boundaryMode">Boundary</label><select id="boundaryMode"><option value="none">No boundary</option><option value="walls" selected>Solid walls</option><option value="wrap">Wraparound</option></select><label id="wallControl">Width <input type="range" id="wallWidth" min="1" max="100" value="1"><output id="wallWidthValue">1 px</output></label></div>
+<div class="row"><label><input id="showBounds" type="checkbox"> Show physics circles</label></div><div class="row"><label for="markerThreshold">Crosshairs below</label><input id="markerThreshold" type="range" min="2" max="30" value="10" step="1"><span class="value" id="markerThresholdValue">10 px</span></div>
+ <div class="section"><h2>WORLD & MOVEMENT</h2>
+ <div class="row"><label for="headsAcross">Heads across long edge</label><input id="headsAcross" type="range" min="20" max="120" step="5" value="60"><span class="value" id="headsAcrossValue">60</span></div>
+ <p class="subnote">Icon size follows the longest screen dimension. Zoom remains a camera control.</p>
+ <p class="subnote">All types normally chase the closest prey. Rear hunters in crowded pursuit lanes may scout or choose another nearby target instead of piling into the same group.</p>
+ <div class="row"><label for="rpsSpeed">RPS movement</label><input id="rpsSpeed" type="range" min="10" max="120" step="5" value="45"><span class="value" id="rpsSpeedValue">45</span></div>
+ <div class="row"><label for="aiInterval">Decision interval</label><input id="aiInterval" type="range" min="1" max="12" step="1" value="4"><span class="value" id="aiIntervalValue">4 frames</span></div>
+ <p class="subnote">Exact nearest-neighbor targeting uses a k-d tree. Updating RPS steering every 4 physics frames reduces lag; set 1 for maximum reactivity.</p>
+ <div class="row"><label for="immunityTime">Boundary rescue protection</label><input id="immunityTime" type="range" min="0" max="5" step="0.25" value="1"><span class="value" id="immunityTimeValue">1s</span></div>
+ </div>
+<div class="section zombie-block" id="perceptionControls">
+ <h2>OUTBREAK · PERCEPTION</h2>
+ <div class="row"><label><input type="checkbox" id="showFov"> Show vision cones</label><label><input type="checkbox" id="showHearing"> Show hearing range</label></div>
+ <p class="subnote">Vision and hearing are measured in head heights. Zombies and humans share FOV settings; zombies hear fleeing humans. Faces travel chin-first.</p>
+ <div class="row"><label for="spawnExtent">Outbreak extent · next round</label><input id="spawnExtent" type="range" min="1" max="5" value="5" step="0.5"><span class="value" id="spawnExtentValue">5× screen</span></div>
+ <div class="row"><label for="wanderSpeed">Human wandering speed</label><input id="wanderSpeed" type="range" min="5" max="100" value="16" step="1"><span class="value" id="wanderSpeedValue">16</span></div>
+ <div class="row"><label for="fleeSpeed">Human running speed</label><input id="fleeSpeed" type="range" min="10" max="120" value="45" step="1"><span class="value" id="fleeSpeedValue">45</span></div>
+ <div class="row"><label for="zombieSpeed">Zombie movement speed</label><input id="zombieSpeed" type="range" min="5" max="150" value="40" step="1"><span class="value" id="zombieSpeedValue">40</span></div>
+ <div class="row"><label for="staminaStart">Starting human stamina</label><input id="staminaStart" type="range" min="10" max="100" step="5" value="65"><span class="value" id="staminaStartValue">65%</span></div>
+ <div class="row"><label for="staminaDrain">Running fatigue</label><input id="staminaDrain" type="range" min="1" max="50" step="1" value="9"><span class="value" id="staminaDrainValue">9%/s</span></div>
+ <div class="row"><label for="staminaMinSpeed">Tired running speed</label><input id="staminaMinSpeed" type="range" min="10" max="100" step="5" value="40"><span class="value" id="staminaMinSpeedValue">40%</span></div>
+ <div class="row"><label for="staminaRest">Rest after exhaustion</label><input id="staminaRest" type="range" min="0.5" max="20" step="0.5" value="4"><span class="value" id="staminaRestValue">4s</span></div>
+ <p class="subnote">Scared humans gradually slow as stamina drains; at zero they rest for the chosen duration, then fully recover and run again. Zombies never tire.</p>
+ <div class="row"><label for="zombieBoostRange">Zombie sprint distance</label><input id="zombieBoostRange" type="range" min="0.5" max="20" value="3" step="0.5"><span class="value" id="zombieBoostRangeValue">3 heads</span></div>
+ <div class="row"><label for="zombieBoostFactor">Zombie close-range sprint</label><input id="zombieBoostFactor" type="range" min="1" max="4" step="0.1" value="1.5"><span class="value" id="zombieBoostFactorValue">1.5×</span></div>
+ <div class="row"><label for="fixationMin">Zombie target lock min</label><input id="fixationMin" type="range" min="0" max="15" value="2" step="0.5"><span class="value" id="fixationMinValue">2s</span></div>
+ <div class="row"><label for="fixationMax">Zombie target lock max</label><input id="fixationMax" type="range" min="0.5" max="30" value="5" step="0.5"><span class="value" id="fixationMaxValue">5s</span></div>
+ <p class="subnote">Once a zombie spots a human, it pursues that same human for a random time within this range before selecting a closer detectable target. Converts release immediately.</p>
+ <div class="row"><label><input id="unlimitedTime" type="checkbox" checked> No outbreak time limit</label></div>
+ <div class="row"><label for="survivalTime">Custom survival limit</label><input class="wide" id="survivalTime" type="number" min="1" max="86400" step="1" value="120" disabled><span class="small">seconds after first infection</span></div>
+ <p class="subnote">With no time limit, humans win only if there are no zombies left; zombies win if all humans are infected.</p>
+ <div class="row"><strong class="small" id="outbreakStatus">All calm · waiting for patient zero</strong></div>
+</div>
+<h2>YOUR PICK · JUST FOR FUN</h2><div class="picks" id="picks"></div><p class="hint" id="pickHint">Pick a species before GO. No betting, currency, or prizes.</p>
+</section>
+<section class="panel spawn" id="spawnPanel"><button class="close" data-close="spawnPanel" title="Close" aria-label="Close panel"></button><h2>SPAWN BRUSH</h2><div class="opacity-control"><label for="spawnOpacity">Spawn opacity</label><input type="range" id="spawnOpacity" min="10" max="100" step="5" value="94" aria-label="Spawn panel opacity"><output id="spawnOpacityLabel">94%</output></div><div class="row"><label for="spawnRate">Hold-to-spawn interval</label><input id="spawnRate" type="range" min="0" max="600" step="5" value="120"><span class="value" id="spawnRateValue">120ms</span></div><div class="row"><label for="spawnBurst">Hyper-spawn per update</label><input id="spawnBurst" type="range" min="1" max="250" step="1" value="1"><span class="value" id="spawnBurstValue">1/tick</span></div><p class="subnote">0 ms spawns every render update while held; increase burst for rapid bulk spawning. Browser safety cap: 15,000 total entities.</p><div class="row"><label for="spawnSpread">Spawn spread</label><input id="spawnSpread" type="range" min="0" max="4" step="0.25" value="0"><span class="value" id="spawnSpreadValue">0 heads</span></div><div class="spawns" id="spawns"></div><p class="hint" id="spawnHint">Left-click to spawn or convert an existing creature. Hold left mouse to paint more. Right-drag to pan; wheel to zoom. On mobile: tap to place, two fingers to pan or pinch.</p></section>
+<nav class="launchers"><button data-toggle="statsPanel">Controls</button><button data-toggle="spawnPanel">Spawn</button><button id="focusTool" aria-pressed="false">Focus</button><button id="unfocus" hidden>Unfollow</button></nav>
+<div class="hud"><span id="zoomLabel">100%</span><span id="focusStatus"></span><span class="desktop-hint"> · Wheel zoom · Right-drag pan</span><span class="mobile-hint"> · Two fingers pan · spread to zoom in</span></div>
+<div class="prestart" id="prestart"><strong><span id="prestartTitle">Choose your winner, then start the hunt!</span></strong><div class="prestart-picks" id="prestartPicks" role="group" aria-label="Pick your winning species before starting"></div><div class="start-row"><span id="prestartPickLabel">Pick a species (optional)</span><button class="go" id="startBig">GO</button></div></div>
+<div class="result" id="result"><div class="small">THE LAST SPECIES STANDING</div><img id="resultIcon" alt="Winning species"><div class="big" id="resultTitle"></div><p id="resultDetails"></p><div class="pick-note" id="pickResult"></div><p class="small">Swarm Arena · Just for fun</p><div class="row"><button class="primary" id="saveResult">Save result PNG</button><button id="again">Play again</button><button id="closeResult">View arena</button></div></div>
+<button id="settingsOpen" aria-haspopup="dialog">Settings</button>
+<div id="storageWarning" role="status" hidden></div>
+<section id="stateLegend" class="state-legend" hidden><button id="legendToggle" aria-expanded="false">Outbreak states</button><div id="stateItems" class="state-items"></div><span id="stateTimers" class="small"></span></section>
+<dialog id="settingsWindow" aria-labelledby="settingsTitle"><header><h1 id="settingsTitle">Arena settings</h1><button id="settingsClose" aria-label="Close settings"></button></header>
+<nav id="settingTabs" aria-label="Settings pages"></nav><div id="settingsBody"></div></dialog>
+<div id="debugMsg"></div>
+<script src="build.js"></script>
+<script>
+  document.title='Swarm Arena · v'+SwarmBuild.version+' · DEV';
+  document.getElementById('devBuildBadge').textContent='DEV · v'+SwarmBuild.version;
+</script>
+<script src="assets/themes/registry.js"></script>
+<script src="sim/options.js"></script>
+<script src="sim/core.js"></script>
+<script src="ui/settings.js"></script>
+<script src="ui/themes.js"></script>
+<script src="ui/arena.js"></script>
+<script src="ui/settings-window.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@8.23.0/dist/pixi.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p2.js/0.7.1/p2.min.js"></script>
+<script src="main.js?v=0.3.0-dev.1"></script>
+</body></html>

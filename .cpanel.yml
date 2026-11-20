@@ -3,3 +3,4 @@ deployment:
   tasks:
     - export DEPLOYPATH="$HOME/public_html/rockpaperscissors"
     - test -L "$DEPLOYPATH" && test -d "$DEPLOYPATH" && /bin/cp index.html main.js "$DEPLOYPATH/" && /bin/cp -R assets ui sim "$DEPLOYPATH/"
+    - test -L "$DEPLOYPATH" && test -d "$DEPLOYPATH" && /bin/cp -R dev "$DEPLOYPATH/"
