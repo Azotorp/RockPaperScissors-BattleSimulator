@@ -32,6 +32,12 @@ Copy `index.html`, `main.js` and the complete `assets/`, `ui/`, and `sim/` direc
 
 Run the pure simulation checks with `node tests/simulation_core.js` and the registry checks with `python tests/theme_registry.py`. Browser tests require Python Playwright, Chromium and Pillow for pixel checks. Set `SWARM_CHROMIUM` to the Chromium executable. Real-engine tests use the production CDN URLs or `SWARM_CDN_CACHE` pointing to cached copies of those exact library versions. Test entry points and results are in the release notes.
 
-## Development channel
+## Release channels
 
-The live root remains the stable Phase 2 baseline (designated **v0.2.0**). The self-contained `dev/` build starts at **v0.3.0-dev.1** and maintains independent browser preferences. See [development channel, deployment and versioning](docs/DEV-CHANNEL.md).
+- **Production** at the site root: **v0.3.0**, promoted from the fully self-contained `0.3.0-dev.9` snapshot on November 20, 2026.
+- **Development archive** under `/dev/`: the original `0.3.0-dev.9` snapshot is preserved, with its own browser preferences.
+- **Rollback**: Git branch `backup/live-v0.2.0-before-v0.3.0` preserves the previously deployed source.
+
+Production uses `swarmArena.preferences` and development uses `swarmArena.dev.preferences`. Neither channel automatically copies browser settings to the other. The cPanel deployment file copies production `build.js`, `default.config.json`, and `lab/` alongside the engine, UI, and assets. cPanel deployment must run for a GitHub update to appear on the live website.
+
+See [development channel instructions](docs/DEV-CHANNEL.md) and [v0.3.0 release notes](docs/RELEASE-0.3.0.md).

@@ -1,7 +1,7 @@
 window.SwarmArenaView = (() => {
   const $ = id => document.getElementById(id);
   const settings=SwarmSettings, themes=SwarmThemes, get=settings.getSetting;
-  const stateLabels={H:'Calm human',Hs:'Frightened human',Hi:'Infected human',Zi:'Idle zombie',Zh:'Hunting zombie',Zc:'Chasing zombie',Za:'Attacking zombie'};
+  const stateLabels={Z:'Inactive zombie',H:'Calm human',Hs:'Frightened human',Hi:'Infected human',Zi:'Idle zombie',Zh:'Hunting zombie',Zc:'Chasing zombie',Za:'Attacking zombie'};
   let counts={}, palette={}, gridInfo={};
   function applyPalette() {
     const css=getComputedStyle(document.documentElement);
@@ -12,10 +12,65 @@ window.SwarmArenaView = (() => {
   function metric(n,step) {
     const unit=Math.max(Math.abs(n),step);
     const [factor,label]=unit>=1e9?[1e9,'Gm']:unit>=1e6?[1e6,'Mm']:unit>=1000?[1000,'km']:[1,'m'];
-    const digits=Math.max(0,Math.min(10,Math.ceil(-Math.log10(step/factor))));
+    const digits=Math.max(0,Math.min(15,Math.ceil(-Math.log10(step/factor))));
     return (n>0?'+':'')+(n/factor).toFixed(digits)+' '+label;
   }
-  function drawMap({x,y,zoom,width,height,metersPerWorldUnit,boundary,wallPx,bounds}) {
+  function drawBorder(g, bounds, x, y, zoom, width, height, thickness, style, wrap) {
+    if (!bounds || style === 'none') return;
+    const px = Math.max(1, thickness * zoom);
+    const left = x + bounds.left * zoom, right = x + bounds.right * zoom;
+    const top = y + bounds.top * zoom, bottom = y + bounds.bottom * zoom;
+    // Each strip grows outward from the physical plane, even at subpixel zoom.
+    function side(horizontal, plane, sign, start, end, lit) {
+      const extent = horizontal ? height : width, length = horizontal ? width : height;
+      if (Math.max(plane, plane + sign * px) < 0 || Math.min(plane, plane + sign * px) > extent ||
+          end + px < 0 || start - px > length) return;
+      const base = palette[wrap ? (horizontal ? 'wrap-y' : 'wrap-x') : 'wall-light'];
+      const shade = wrap ? 'color-mix(in srgb, ' + base + ' 68%, black)' : palette['wall-dark'];
+      const point = (along, depth) => horizontal ? [along, plane + sign * depth] : [plane + sign * depth, along];
+      function band(inner, outer, color) {
+        g.beginPath();
+        g.moveTo(...point(start-inner, inner));
+        g.lineTo(...point(end+inner, inner));
+        g.lineTo(...point(end+outer, outer));
+        g.lineTo(...point(start-outer, outer));
+        g.closePath();
+        g.fillStyle = color;
+        g.fill();
+      }
+      if (style === 'dotted' || style === 'dashed') {
+        const dotted = style === 'dotted', dash = dotted ? 0 : 3 * px;
+        const space = 2 * px, from = Math.max(start, -4 * px), to = Math.min(end, length + 4 * px);
+        if (from > to) return;
+        g.save();
+        g.lineWidth = px;
+        g.strokeStyle = base;
+        g.lineCap = dotted ? 'round' : 'butt';
+        g.setLineDash([dash, space]);
+        g.lineDashOffset = (from - start) % (dash + space);
+        g.beginPath();
+        g.moveTo(...point(from, px/2));
+        g.lineTo(...point(to, px/2));
+        g.stroke();
+        g.restore();
+      } else if (style === 'double') {
+        band(0, px/3, base);
+        band(2*px/3, px, base);
+      } else if (style === 'groove' || style === 'ridge') {
+        const lightInside = lit === (style === 'groove');
+        band(0, px/2, lightInside ? base : shade);
+        band(px/2, px, lightInside ? shade : base);
+      } else {
+        const dark = style === 'inset' ? lit : style === 'outset' && !lit;
+        band(0, px, dark ? shade : base);
+      }
+    }
+    side(true, top, -1, left, right, true);
+    side(true, bottom, 1, left, right, false);
+    side(false, left, -1, top, bottom, true);
+    side(false, right, 1, top, bottom, false);
+  }
+  function drawMap({x,y,zoom,width,height,metersPerWorldUnit,boundary,wallPx,style,bounds,origin={x:0,y:0}}) {
     const canvas=$('metricMap'), dpr=Math.min(devicePixelRatio,2);
     if(canvas.width!==Math.round(width*dpr) || canvas.height!==Math.round(height*dpr)) {
       canvas.width=Math.round(width*dpr); canvas.height=Math.round(height*dpr);
@@ -30,9 +85,7 @@ window.SwarmArenaView = (() => {
     const lineColor = key => get('grid.'+key)==='theme'?palette['grid-'+key]:get('grid.'+key);
     // Bound loops by the viewport, even at numerical camera limits.
     function ticks(axis,origin,extent) {
-      const first=Math.ceil(-origin/gap), limit=Math.ceil(extent/gap)+1;
-      for(let i=0;i<limit;i++) {
-        const tick=first+i, px=origin+tick*gap;
+      for (const {index:tick,px} of SwarmCamera.ticks(origin,metersPerWorldUnit,step,zoom,extent)) {
         if(px<-.01 || px>extent+.01) continue;
         g.strokeStyle=lineColor(tick===0?'axis':tick%5===0?'major':'minor');
         g.lineWidth=(Number(palette['grid-width'])||1)*(tick===0?2:1);
@@ -53,24 +106,8 @@ window.SwarmArenaView = (() => {
       }
     }
     const occupied=[...document.querySelectorAll('.panel:not(.hidden),.hud,.launchers,#settingsOpen,.arena-distribution,.prestart:not(.hidden),#stateLegend:not([hidden])')].map(el=>el.getBoundingClientRect());
-    if(get('grid.visible')) {ticks('x',x,width);ticks('y',y,height);}
-    const left=bounds?x+bounds.left*zoom:0,top=bounds?y+bounds.top*zoom:0;
-    const right=bounds?x+bounds.right*zoom:width,bottom=bounds?y+bounds.bottom*zoom:height;
-    if(boundary!=='none'){
-      const px=boundary==='walls'?Math.max(1,Math.min(wallPx,(right-left)/2,(bottom-top)/2)):1;
-      const edges=[[left,top,right-left,px,0,px,'wrap-y'],[left,bottom-px,right-left,px,0,-px,'wrap-y'],
-        [left,top,px,bottom-top,px,0,'wrap-x'],[right-px,top,px,bottom-top,-px,0,'wrap-x']];
-      for(const [sx,sy,w,h,dx,dy,color] of edges){
-        const l=Math.max(0,sx),r=Math.min(width,sx+w),t=Math.max(0,sy),b=Math.min(height,sy+h);
-        if(l>=r||t>=b)continue;
-        if(boundary==='walls'){
-          const gx=dx<0?sx+w:sx,gy=dy<0?sy+h:sy;
-          const gradient=g.createLinearGradient(gx,gy,gx+dx,gy+dy);
-          gradient.addColorStop(0,palette['wall-light']);gradient.addColorStop(1,palette['wall-dark']);g.fillStyle=gradient;
-        }else g.fillStyle=palette[color];
-        g.fillRect(l,t,r-l,b-t);
-      }
-    }
+    if(get('grid.visible')) {ticks('x',origin.x-x/zoom,width);ticks('y',origin.y-y/zoom,height);}
+    if (boundary !== 'none') drawBorder(g, bounds, x, y, zoom, width, height, wallPx, style, boundary === 'wrap');
     gridInfo={step,gap,metersPerWorldUnit};
   }
   function renderRulesDiagram(mode,rules){
@@ -136,8 +173,9 @@ window.SwarmArenaView = (() => {
       const bar=$('overview-bar-'+kind);bar.style.width=pct;bar.title=kind+': '+n+' ('+pct+')';
     }
   }
-  function stateList(target,values,expanded) {
+  function stateList(target,values) {
     for(const [id,label] of Object.entries(stateLabels)) {
+      if(id==='Z' && !values[id]){target.querySelector('[data-state=Z]')?.remove();continue;}
       let item=target.querySelector('[data-state="'+id+'"]');
       if(!item){
         item=document.createElement('span');item.dataset.state=id;item.title=label;
@@ -145,14 +183,14 @@ window.SwarmArenaView = (() => {
       }
       const url=themes.icon(id), img=item.firstElementChild;
       if(img.getAttribute('src')!==url) img.src=url;
-      const text=(expanded?label:id)+' '+(values[id]??'—');
+      const text=label+' '+(values[id]??'—');
       if(item.lastElementChild.textContent!==text)item.lastElementChild.textContent=text;
     }
   }
   function renderStates() {
     const expanded=get('hud.states.expanded');
     $('legendToggle').setAttribute('aria-expanded',String(expanded));
-    stateList($('stateItems'),counts,expanded);
+    stateList($('stateItems'),counts);
   }
   function setStateCounts(values={}) {counts=values;renderStates();}
   const widgets=[];
@@ -177,11 +215,12 @@ window.SwarmArenaView = (() => {
   }
   function syncHUD(mode) {
     const root=document.documentElement.style;
+    root.setProperty('--overlay-alpha',1-get('hud.backgroundTransparency')/100);
     for(const part of ['bar','text','toolbar','states']) root.setProperty('--'+part+'-alpha',1-get('hud.'+part+'.transparency')/100);
     $('stateLegend').hidden=mode!=='zombie'||!get('hud.states.visible');
     $('diagram').style.opacity=get('modes.'+mode+'.diagramOpacity')/100;
     $('diagram').hidden=mode==='zombie'||!get('modes.'+mode+'.diagram');
-    $('wallControl').hidden=$('boundaryMode').value!=='walls';
+    $('wallControl').hidden=$('styleControl').hidden=$('boundaryMode').value==='none';
     $('wallWidthValue').textContent=$('wallWidth').value+' px';
     for(const sync of widgets) sync();
   }

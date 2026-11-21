@@ -1,7 +1,7 @@
 (async () => {
   'use strict';
 
-  if (!window.PIXI || !window.p2) throw new Error('PixiJS and p2.js must load before main.js');
+  if (!window.PIXI) throw new Error('PixiJS must load before main.js');
 
   const { Application, Container, Graphics, Sprite } = PIXI;
   const $ = id => document.getElementById(id);
@@ -14,7 +14,8 @@
   };
   const T = SwarmThemes, S = SwarmSettings, V = SwarmArenaView;
   const get = S.getSetting, modeKey = field => S.modePath(mode,field);
-  const COLORS = {}, ink = {};
+  const COLORS = {}, ink = {}, infectedYellow=0xffe347;
+  await S.ready;
   const requestedTheme = get('theme.id');
   const stateOf = u => u.visualState || (u.type === 'human' && u.scared ? 'Hs' : T.codes[u.type]);
   function readColors() {
@@ -25,7 +26,8 @@
     V.applyPalette();
   }
   const TAU = 2 * Math.PI, DT = 1 / 60;
-  const MIN_ZOOM = 1e-5, MAX_ZOOM = 1e5;
+  const MAX_ZOOM = 1e5;
+  const origin = {x:0,y:0};
   const requestedHeads = () => Math.max(20, Number($('headsAcross').value) || 60);
   const calculatedHead = () => Math.max(8, Math.max(innerWidth, innerHeight) / requestedHeads());
   let HEAD = calculatedHead(), RADIUS = HEAD * .44, CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
@@ -40,12 +42,10 @@
   const zombieBoostDistance = () => Number($('zombieBoostRange').value) * HEAD;
   const zombieBoostFactor = () => Number($('zombieBoostFactor').value);
   const aiInterval = () => Math.max(1, Number($('aiInterval').value) || 1);
-  const maxCreatures = 15000; // protect browser against accidental infinite allocation
+  let motionEpoch=0,gpuDevice=null,gpuOpening=false,gpuFailure='',gpuChoice='',gpuPending=false,gpuSteps=0,gpuAgents=0;
+  let gpuInput=new Float32Array(0),gpuGoals=new Float64Array(0);
+  const maxCreatures = 999999; // protect browser against accidental infinite allocation
 
-  const fixationLimits = () => {
-    const lo = Number($('fixationMin').value), hi = Number($('fixationMax').value);
-    return [Math.min(lo, hi), Math.max(lo, hi)];
-  };
   const immunitySeconds = () => Number($('immunityTime').value);
   const startIds = T.stateIds;
   const app = new Application();
@@ -58,7 +58,7 @@
     const loaded = await T.loadStates(id,ids);
     const url = 'assets/themes/' + id + '/' + T.registry[id].stylesheet;
     const old = $('themeStyle');
-    if (old.getAttribute('href') !== url) {
+    if (new URL(old.href).pathname !== new URL(url, document.baseURI).pathname) {
       const link = document.createElement('link'); link.rel='stylesheet';
       await new Promise((resolve,reject)=>{
         link.onload=resolve; link.onerror=()=>{link.remove();reject(Error('Theme stylesheet unavailable'));};
@@ -78,10 +78,10 @@
   const sightGraphics = new Graphics(), hearingGraphics = new Graphics();
   visionLayer.addChild(hearingGraphics, sightGraphics);
 
-  const world = new p2.World({ islandSplit:false, gravity: [0, 0], broadphase: new p2.SAPBroadphase() });
+  const world = window.p2 && new p2.World({ islandSplit:false, gravity: [0, 0], broadphase: new p2.SAPBroadphase() });
   // All species now participate in physical p2 contacts. Conversion still
   // follows the game rules and swept collision tests prevent fast misses.
-  world.solver.iterations = 3;
+  if (world) world.solver.iterations = 3;
   const CONTACT_GROUP = {
     rock: 1, paper: 2, scissors: 4, lizard: 8, spock: 16,
     human: 32, zombie: 64
@@ -91,11 +91,10 @@
     shape.collisionGroup = CONTACT_GROUP[type];
     shape.collisionMask = ALL_CONTACTS;
   }
-  world.defaultContactMaterial.friction = 0;
-  world.defaultContactMaterial.restitution = 0.13;
+  if (world) { world.defaultContactMaterial.friction=0; world.defaultContactMaterial.restitution=.13; }
   const physicalPairs=new Map();
   const contactKey=(a,b)=>a.sequence<b.sequence?a.sequence+','+b.sequence:b.sequence+','+a.sequence;
-  for(const eventName of ['beginContact','endContact'])world.on(eventName,e=>{
+  for(const eventName of ['beginContact','endContact'])world?.on(eventName,e=>{
     const a=e.bodyA.agent,b=e.bodyB.agent;if(!a||!b)return;
     const key=contactKey(a,b);
     if(eventName==='beginContact'){
@@ -145,10 +144,11 @@
     }
   }
   function redraw() {
-    V.drawMap({x:camera.x,y:camera.y,zoom:scale,width:innerWidth,height:innerHeight,
-      metersPerWorldUnit:get('grid.referenceMeters')/20,boundary:$('boundaryMode').value,wallPx:Number($('wallWidth').value),bounds:arena});
+    V.drawMap({origin,x:camera.x,y:camera.y,zoom:scale,width:innerWidth,height:innerHeight,
+      metersPerWorldUnit:get('grid.referenceMeters')/20,boundary,wallPx:wallThickness,style:$('borderStyle').value,bounds:arena});
   }
   function drawCrosshairs(){
+    if(preparing)return;
     const tiny=HEAD*scale<Number($('markerThreshold').value);
     markerLayer.clear();
     const byKind=new Map();
@@ -156,12 +156,23 @@
     for(const u of units){
       const x=camera.x+u.body.position[0]*scale,y=camera.y+u.body.position[1]*scale;
       const visible=x>=-pad&&x<=app.screen.width+pad&&y>=-pad&&y<=app.screen.height+pad;
-      u.holder.visible=!tiny&&visible;
-      u.sprite.visible=!tiny;
+      const spriteVisible=!tiny&&visible;
+      if(spriteVisible && !u.holder){
+        Object.assign(u,visual(u.type));u.appearanceTheme=null;updateAppearance(u);
+        u.holder.position.set(...u.body.position);u.holder.rotation=u.angle+u.facingOffset;
+        actors.addChild(u.holder);
+      }else if(!spriteVisible && u.holder){
+        u.holder.destroy({children:true});u.holder=u.sprite=u.immunity=u.circle=u.fearGlow=null;
+      }
+      if(u.sprite && typeof u.sprite.play==='function' && typeof u.sprite.stop==='function' && u.sprite.playing!==spriteVisible){
+        if(spriteVisible)u.sprite.play();else u.sprite.stop();
+      }
+
       if(u.fearGlow)u.fearGlow.visible=!tiny&&u.scared;
       if(tiny && visible){
-        if(!byKind.has(u.type))byKind.set(u.type,new Map());
-        const points=byKind.get(u.type),pixel=Math.round(x)+','+Math.round(y);
+        const color=u.aiState==='Hi'?infectedYellow:COLORS[u.type];
+        if(!byKind.has(color))byKind.set(color,new Map());
+        const points=byKind.get(color),pixel=Math.round(x)+','+Math.round(y);
         if(!points.has(pixel))points.set(pixel,[x,y]);
       }
     }
@@ -169,11 +180,15 @@
     if(byKind.size){
       for(const points of byKind.values())marks(points);
       markerLayer.stroke({color:ink['marker-edge'],width:3.2,alpha:.95});
-      for(const [type,points] of byKind){marks(points);markerLayer.stroke({color:COLORS[type],width:1.6,alpha:1});}
+      for(const [color,points] of byKind){
+        if(color===infectedYellow)continue;
+        marks(points);markerLayer.stroke({color,width:1.6,alpha:1});
+      }
+      if(byKind.has(infectedYellow)){marks(byKind.get(infectedYellow));markerLayer.stroke({color:infectedYellow,width:1.6,alpha:1});}
     }
   }
   function fit() {
-    scale = 1; camera.scale.set(1); camera.position.set(0, 0);
+    scale = 1; camera.scale.set(1); camera.position.set(origin.x,origin.y);
     $('zoomLabel').textContent = '100%';
     redraw(); drawVision();
   }
@@ -186,39 +201,45 @@
     return {holder,sprite,fearGlow:null,circle:null,immunity:null};
   }
   function add(type, x, y) {
-    const view = visual(type);
-    const body = new p2.Body({ mass: 1, position: [x, y], fixedRotation: true, damping: 0 });
-    const shape = new p2.Circle({ radius: RADIUS });
-    setContactFilter(shape, type);
-    body.addShape(shape);
-    world.addBody(body);
-    const angle = Math.random() * TAU;
+    motionEpoch++;
+
+    const shape = solver==='p2' ? new p2.Circle({radius:RADIUS}) : {radius:RADIUS};
+    setContactFilter(shape,type);
+    let body;
+    if (solver==='p2') {
+      body=new p2.Body({mass:1,position:[x,y],fixedRotation:true,damping:0});
+      body.position=new Float64Array([x,y]);
+      body.addShape(shape);
+      world.addBody(body);body.p2Managed=true;
+    } else {
+      body={id:nextSequence,position:[x,y],previousPosition:[x,y],velocity:[0,0],shapes:[shape]};
+    }
+    const angle = random() * TAU;
     const speed = type === 'human' ? wanderSpeed() : type === 'zombie' ? zombieSpeed() : rpsSpeed();
     body.velocity[0] = Math.cos(angle) * speed;
     body.velocity[1] = Math.sin(angle) * speed;
     const u = {
-      sequence:nextSequence++,type, body, ...view, angle, scared: false, appearanceId:T.codes[type], facingOffset:T.loaded.get(T.codes[type]).facingDegrees*Math.PI/180,
-      heading: angle, wanderHeading: angle, nextWander: t + .5 + Math.random() * 3,
+      sequence:nextSequence++,type, body, holder:null,sprite:null,immunity:null,circle:null,fearGlow:null, angle, scared: false, appearanceId:T.codes[type], facingOffset:T.loaded.get(T.codes[type]).facingDegrees*Math.PI/180,
+      heading: angle, wanderHeading: angle, nextWander: t + .5 + random() * 3,
       immuneUntil: 0,
       // Humans start moderately rested. Panic drains energy only while running.
       stamina: staminaStart(), restingUntil: -1, restState: false
     };
     body.agent = u;
-    view.holder.position.set(x, y);
-    view.holder.rotation = angle + T.loaded.get(T.codes[type]).facingDegrees * Math.PI/180;
-    actors.addChild(view.holder);
+
     units.push(u);resetBrain(u);
     if($('showBounds').checked)outline(u);
     return u;
   }
   function change(u, type) {
+    motionEpoch++;
     if (u.type === type && (type !== 'human' || !u.scared)) return false;
     forgetContacts(u);u.type = type;
     u.visualState = null;
     setContactFilter(u.body.shapes[0], type);
     u.scared = false;
     u.wanderHeading = u.angle;
-    u.nextWander = t + Math.random() * 2;
+    u.nextWander = t + random() * 2;
     u.stamina = staminaStart(); u.restingUntil = -1; u.restState = false;
     resetBrain(u);updateAppearance(u);
     return true;
@@ -226,6 +247,8 @@
   function updateAppearance(u) {
     const id = stateOf(u), a = T.loaded.get(id);
     if (!a) return;
+    u.facingOffset=a.facingDegrees*Math.PI/180;
+    if(!u.holder)return;
     if (u.appearanceId !== id || u.appearanceTheme !== T.id) {
       if (a.textures.length===1 && !u.sprite.play) {
         u.sprite.texture=a.textures[0];u.sprite.anchor.set(...a.pivot);
@@ -236,6 +259,7 @@
       u.appearanceId=id;u.appearanceTheme=T.id;
     }
     u.facingOffset=a.facingDegrees*Math.PI/180;
+    u.sprite.tint=id==='Hi'?infectedYellow:0xffffff;
     u.sprite.width=HEAD;u.sprite.height=HEAD;
     if(u.scared && !u.fearGlow){
       u.fearGlow=new Sprite(T.loaded.get('Hs').textures[0]);u.fearGlow.anchor.set(.5);
@@ -245,6 +269,7 @@
     outline(u);
   }
   function outline(u){
+    if(!u.holder)return;
     const show=$('showBounds').checked;
     if(show && !u.circle){u.circle=new Graphics();u.holder.addChild(u.circle);}
     if(u.circle){u.circle.visible=show;if(show)u.circle.clear().circle(0,0,RADIUS).stroke({color:COLORS[u.type],width:1.4,alpha:.8});}
@@ -252,7 +277,7 @@
   const retired=[];
   function disposeRetired(deadline=Infinity){
     while(retired.length && performance.now()<deadline){
-      const u=retired.pop();world.removeBody(u.body);u.holder.destroy({children:true});
+      const u=retired.pop();if(u.body.p2Managed)world.removeBody(u.body);u.holder?.destroy({children:true});
     }
   }
   function clear(defer=false){
@@ -263,7 +288,7 @@
     if(!defer || retired.length<=600)disposeRetired();
   }
   function rescue() {
-    const v = arena, pad = RADIUS + 1;
+    const v = arena, pad = RADIUS;
     for (const u of units) {
       const p = u.body.position;
       const x = Math.max(v.left + pad, Math.min(v.right - pad, p[0]));
@@ -282,27 +307,46 @@
     u.pairKeys.clear();
   }
   function teleport(u, x, y) {
+    motionEpoch++;
     forgetContacts(u);
     const body = u.body;
     body.position[0] = body.previousPosition[0] = x;
     body.position[1] = body.previousPosition[1] = y;
     body.aabbNeedsUpdate=true;u._stepX=x;u._stepY=y;u.revision++;u.target=null;dirtyTrees=true;
-    u.holder.position.set(x,y);
+    u.holder?.position.set(x,y);
   }
 
+  let acceptedHeads = requestedHeads();
   function resizeCreatures() {
-    HEAD = calculatedHead(); RADIUS = HEAD * .44;
+    motionEpoch++;
+    const nextHead = calculatedHead();
+    const requested = requestedHeads();
+    if (nextHead === HEAD) { acceptedHeads = requested; return; }
+    try {
+      if (preparing) throw Error('Wait for the round to finish preparing before changing creature size.');
+      B.geometry(outer, boundary, wallThickness, nextHead * .44);
+    } catch (error) {
+      $('headsAcross').value = acceptedHeads;
+      $('headsAcrossValue').textContent = acceptedHeads;
+      S.setSetting(modeKey('headsAcross'), acceptedHeads, 'game');
+      notice(error.message);
+      return;
+    }
+    acceptedHeads = requested;
+    HEAD = nextHead; RADIUS = HEAD * .44;
     CATCH = RADIUS * 2 + Math.max(1, HEAD * .05);
     for (const u of units) {
-      u.sprite.width=u.sprite.height=HEAD;
+      if(u.sprite)u.sprite.width=u.sprite.height=HEAD;
       if(u.fearGlow)u.fearGlow.width=u.fearGlow.height=HEAD;
       const shape = u.body.shapes[0];
       shape.radius = RADIUS;
-      u.body.updateBoundingRadius(); u.body.updateMassProperties();
+      u.body.updateBoundingRadius?.(); u.body.updateMassProperties?.();
       u.body.aabbNeedsUpdate = true;
       outline(u);
       if(u.immunity)u.immunity.clear().circle(0, 0, RADIUS + 3).stroke({ color: ink.immunity, width: 2 });
     }
+    if (boundary !== 'none' && arena) rescue();
+    index();
     drawVision();
   }
 
@@ -385,7 +429,21 @@
     });
     V.syncHUD(mode);selection(); V.renderRulesDiagram(mode,mode==='3'?RPS3:RPS5); update(true);
   }
+  let rateStart=0,rateSimStart=0;
+  function resetPlaybackRate(){
+    rateStart=performance.now();rateSimStart=t;
+    $('actualSpeed').textContent='';
+  }
+  function showPlaybackRate(){
+    const now=performance.now(),elapsed=now-rateStart;
+    if(elapsed<750)return;
+    const actual=(t-rateSimStart)*1000/elapsed;
+    $('actualSpeed').textContent=Number(actual.toFixed(2))+'× actual';
+    rateStart=now;rateSimStart=t;
+  }
   function setState(next) {
+    motionEpoch++;
+    resetPlaybackRate();
     state = next;
     $('run').textContent = next === 'ready' ? 'GO' : next === 'running' ? 'Pause' : next === 'paused' ? 'Resume' : 'Finished';
     $('run').disabled = next === 'finished';
@@ -396,7 +454,7 @@
     if (!force && t - lastUI < .12) return;
     lastUI = t;
     const numbers = Object.fromEntries(active().map(a => [a, 0]));
-    let scared=0,soonest=Infinity;const states={H:0,Hs:0,Hi:0,Zi:0,Zh:0,Zc:0,Za:0};
+    let scared=0,soonest=Infinity;const states={H:0,Hs:0,Hi:0,Z:0,Zi:0,Zh:0,Zc:0,Za:0};
     for (const u of units) { numbers[u.type]++;if(isZombieMode()){states[u.aiState]++;if(u.incubation!==null)soonest=Math.min(soonest,u.incubation);}
       if (u.type === 'human' && u.scared) scared++; }
     for (const a of active()) {
@@ -418,9 +476,15 @@
         : `Outbreak active · ${resting} humans resting · ${unlimitedOutbreak() ? 'No time limit' : `survive ${Math.ceil(left)} more seconds`}`;
     }
   }
+  let solver='cpu', random=SwarmSimulation.randomStream('swarm');
   let generation=0, preparing=false, roundSeed='', lastBuildMs=0;
   function notice(text) {$('roundNotice').textContent=text;$('roundNotice').hidden=!text;}
+  let roundExtent=1;
+  function rememberWalls(){
+    S.setSetting(modeKey('arenaBounds'),[outer.left,outer.top,outer.right,outer.bottom,origin.x,origin.y,roundExtent],'game');
+  }
   function reset() {
+    motionEpoch++;
     const ticket=++generation, started=performance.now();
     preparing=false;setFocus(null);clear(true);nextSequence=0;
     t=0;accumulator=0;stepNumber=0;lastUI=-1;lastVisionDraw=0;
@@ -432,16 +496,28 @@
     const extent=config.arenaScale*(isZombieMode()?Number($('spawnExtent').value):1);
     const width=innerWidth*extent,height=innerHeight*extent;
     const left=(innerWidth-width)/2,top=(innerHeight-height)/2;
-    arena={left,top,right:left+width,bottom:top+height,width,height};
+    const saved=get(modeKey('arenaBounds'));
+    const reuse=saved && saved[6]===extent;
+    const ox=reuse?saved[4]:0,oy=reuse?saved[5]:0;
+    camera.position.set(camera.x+(ox-origin.x)*scale,camera.y+(oy-origin.y)*scale);
+    origin.x=ox;origin.y=oy;roundExtent=extent;
+    outer=reuse?B.rectangle(...saved.slice(0,4)):B.rectangle(left,top,left+width,top+height);
+    wallThickness=Number($('wallWidth').value);
+    arena=null;
     roundSeed=get(modeKey('seedMode'))==='fixed'?get(modeKey('seed')):crypto.getRandomValues(new Uint32Array(2)).join('-');
-    redraw();buildUI();
+    solver = world ? $('solver').value : 'cpu';
+    random = SwarmSimulation.randomStream(roundSeed + '/simulation');
+    buildUI();
     let places;
     try{
+      arena=B.geometry(outer,boundary,wallThickness,RADIUS);rememberWalls();
+      redraw();
       const total=Object.values(counts).reduce((a,b)=>a+b,0);
       if(!total)throw Error('Choose at least one creature for the next round.');
       if(total>maxCreatures)throw Error('Round limit is '+maxCreatures+' creatures. Reduce the requested population.');
       places=SwarmSimulation.placements({seed:roundSeed,bounds:arena,counts,radius:RADIUS,gap:config.gap,distribution:get(modeKey('distribution'))});
     }catch(e){
+      redraw();
       setState('ready');$('run').disabled=$('startBig').disabled=true;notice(e.message);
       function finishCleanup(){if(ticket!==generation)return;disposeRetired(performance.now()+7);if(retired.length)requestAnimationFrame(finishCleanup);}
       finishCleanup();return;
@@ -463,6 +539,7 @@
     batch();
   }
   function startOutbreak() {
+    motionEpoch++;
     if (!isZombieMode() || seeded === true) return;
     seeded = true; outbreakAt = t;
     if (state === 'ready') setState('running');
@@ -502,16 +579,53 @@
   }
 
   let decisions=new Map(), dirtyTrees=true, nextSequence=0;
-  let arena={left:0,top:0,right:innerWidth,bottom:innerHeight,width:innerWidth,height:innerHeight};
+  const B = SwarmBoundary;
+  let outer = B.rectangle(0, 0, innerWidth, innerHeight);
+  let arena = outer, wallThickness = 1;
+
+  function updateBoundary() {
+    motionEpoch++;
+    const modeValue = $('boundaryMode').value;
+    const thickness = Number($('wallWidth').value);
+    try {
+      if (preparing && (modeValue !== boundary || thickness !== wallThickness))
+        throw Error('Wait for the round to finish preparing before changing its boundary.');
+      if (modeValue !== 'none' && Math.max(Math.abs(outer.left),Math.abs(outer.right),Math.abs(outer.top),Math.abs(outer.bottom))>2**22*RADIUS)
+        throw Error('Resize to a local view before enabling walls or portals.');
+      const next = B.geometry(outer, modeValue, thickness, RADIUS);
+      const changed = modeValue !== boundary || thickness !== wallThickness;
+      boundary = modeValue;
+      wallThickness = thickness;
+      arena = next;
+      if (changed) {
+        if (boundary !== 'none') rescue();
+        dirtyTrees = true;
+        index();
+        drawVision();
+        drawCrosshairs();
+        notice('');
+      }
+    } catch (error) {
+      $('boundaryMode').value = boundary;
+      $('wallWidth').value = wallThickness;
+      S.setSetting(modeKey('boundaryMode'), boundary, 'game');
+      S.setSetting(modeKey('wallWidth'), wallThickness, 'game');
+      notice(error.message);
+    }
+    V.syncHUD(mode);
+    redraw();
+  }
   let config={}, senses={}, kindRules={};
   function refreshConfig() {
+    motionEpoch++;
     config={};
     for(const items of Object.values(SwarmOptions))for(const [key] of items){
       if(S.schema.has(modeKey(key)))config[key]=get(modeKey(key));
     }
-    if(isZombieMode())for(const k of ['idleInterrupt','spreadFear'])config[k]=get(modeKey(k));
+    if(isZombieMode())config.spreadFear=get(modeKey('spreadFear'));
     for(const kind of active()) {
       senses[kind]=Object.fromEntries(['enabled','fov','angle','sight','hearing'].map(k=>[k,get(modeKey('ai.'+kind+'.'+k))]));
+      senses[kind].coneCos=Math.cos(senses[kind].angle*Math.PI/360);
       kindRules[kind]=isZombieMode()?{prey:kind==='zombie'?['human']:[],threat:kind==='human'?['zombie']:[]}:
         {prey:active().filter(q=>beats(kind,q)),threat:active().filter(q=>beats(q,kind))};
     }
@@ -526,14 +640,18 @@
   function detect(u,dx,dy) {return SwarmSimulation.canDetect(senses[u.type],dx,dy,u.angle,HEAD);}
   function findTarget(u,types,radius,accept=()=>true) {
     const sensor=senses[u.type];
-    const range=sensor.fov?Math.min(radius,HEAD*Math.max(sensor.sight,sensor.hearing)):radius;
-    return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy)=>accept(q) && detect(u,dx,dy),
-      boundary==='wrap'?arena:null);
+    const wrap=boundary==='wrap'?arena:null;
+    if(!sensor.fov)return SwarmSimulation.nearest(decisions,types,u,radius,accept,wrap);
+    const facingX=Math.cos(u.angle),facingY=Math.sin(u.angle);
+    const hearing2=(HEAD*sensor.hearing)**2,sight2=(HEAD*sensor.sight)**2;
+    const range=Math.min(radius,HEAD*Math.max(sensor.sight,sensor.hearing));
+    return SwarmSimulation.nearest(decisions,types,u,range,(q,dx,dy,d2)=>
+      (d2<=hearing2 || (d2<=sight2 && dx*facingX+dy*facingY>=Math.sqrt(d2)*sensor.coneCos-1e-8)) && accept(q,dx,dy,d2),wrap);
   }
-  function rollTime(a,b){return (Math.min(a,b)+Math.random()*Math.abs(b-a))/1000;}
+  function rollTime(a,b){return (Math.min(a,b)+random()*Math.abs(b-a))/1000;}
   function wander(u){
     if(t>=u.nextWander){
-      u.wanderHeading=u.angle+(Math.random()-.5)*Math.PI;
+      u.wanderHeading=u.angle+(random()-.5)*Math.PI;
       u.nextWander=t+rollTime(config.wanderMin,config.wanderMax);
     }
     return u.wanderHeading;
@@ -547,22 +665,35 @@
     }
   }
   function resetBrain(u) {
-    u.target=null;u.danger=null;u.targetVersion=-1;u.revision=(u.revision||0)+1;
+    u.target=null;u.danger=null;u.challenger=null;u.dangerUntil=0;u.targetVersion=-1;u.revision=(u.revision||0)+1;
     u.fearUntil=0;u.directFearUntil=0;u.scared=false;u.exposure=0;u.incubation=null;u.bonusContact=0;
-    u.attackUntil=0;u.trackedAt=t;u.lockUntil=0;u.searchUntil=0;
+    u.attackUntil=0;u.biteTarget=null;u.searchUntil=0;
     u.idleUntil=t+(isZombieMode()?rollTime(config.idleMin,config.idleMax):0);
     u.nextWander=t+rollTime(config.wanderMin,config.wanderMax);
     assignState(u,u.type==='human'?'H':u.type==='zombie'?'Zi':'wander');
     dirtyTrees=true;
   }
   function eligible(u,q) {
-    return !!q && q.body.agent===q && kindRules[u.type].prey.includes(q.type) && q.incubation===null;
+    return !!q && q.body.agent===q && kindRules[u.type].prey.includes(q.type);
   }
   function decide(u){
     if(!senses[u.type].enabled){u.target=u.danger=null;return;}
-    const outbreak=isZombieMode();
-    u.danger=findTarget(u,kindRules[u.type].threat,u.type==='human'?Infinity:config.threat*HEAD);
+    if(u.type==='zombie'){
+      u.target=findTarget(u,['human'],Infinity);
+      if(u.target){
+        u.targetVersion=u.target.revision;u.idleUntil=0;u.searchUntil=t+config.huntTime/1000;
+      }else if(t<u.idleUntil){
+        const sensor=senses.zombie,dirX=Math.cos(u.angle),dirY=Math.sin(u.angle);
+        const limit=sensor.fov?sensor.sight*HEAD:Infinity;
+        const activePeer=SwarmSimulation.nearest(decisions,['zombie'],u,limit,(q,dx,dy,d2)=>
+          (q.aiState==='Zh'||q.aiState==='Zc'||q.aiState==='Za') &&
+          (!sensor.fov || dx*dirX+dy*dirY>=Math.sqrt(d2)*sensor.coneCos-1e-8),boundary==='wrap'?arena:null);
+        if(activePeer)u.idleUntil=0;
+      }
+      return;
+    }
     if(u.type==='human'){
+      u.danger=findTarget(u,kindRules.human.threat,Infinity);
       if(u.incubation!==null)return;
       if(u.danger){
         const [dx,dy]=displacement(u,u.danger);
@@ -573,21 +704,29 @@
       }
       return;
     }
-    if(u.type==='zombie' && t<u.idleUntil && !config.idleInterrupt && senses.zombie.fov){u.target=null;return;}
     const old=u.target;
-    let valid=eligible(u,old) && old.revision===u.targetVersion;
-    const oldDelta=valid?displacement(u,old):null;
-    valid=valid && detect(u,...oldDelta);
-    if(!valid || t>=u.lockUntil){
-      const nearest=findTarget(u,kindRules[u.type].prey,Infinity,q=>q.incubation===null);
-      if(!valid)u.target=nearest;
-      else if(nearest && nearest!==old && Math.hypot(...displacement(u,nearest))<Math.hypot(...oldDelta)*(1-config.retarget/100))u.target=nearest;
-    }
-    if(u.target && (u.target!==old || !valid)){
-      u.targetVersion=u.target.revision;u.trackedAt=t;
-      const [lo,hi]=outbreak?fixationLimits():[0,0];u.lockUntil=t+lo+Math.random()*(hi-lo);
-    }
-    if(u.target){u.searchUntil=t+(config.huntTime||0)/1000;u.idleUntil=0;}
+    const oldDelta=eligible(u,old)?displacement(u,old):null;
+    const valid=oldDelta && detect(u,...oldDelta);
+    const nearest=findTarget(u,kindRules[u.type].prey,Infinity);
+    if(!valid){
+      u.target=nearest;u.challenger=null;
+    }else if(nearest && nearest!==old &&
+        Math.hypot(...displacement(u,nearest))<Math.hypot(...oldDelta)*(1-config.retarget/100)){
+      if(nearest!==u.challenger){u.challenger=nearest;u.challengerSince=t;}
+      if((t-u.challengerSince)*1000+1e-7>=config.retargetDelay){u.target=nearest;u.challenger=null;}
+    }else u.challenger=null;
+    if(u.target)u.targetVersion=u.target.revision;
+
+    // Avoid an immediate predator, or one between the hunter and its prey.
+    const [px,py]=u.target?displacement(u,u.target):[0,0];
+    const path2=px*px+py*py,urgent=config.threat*HEAD;
+    const danger=findTarget(u,kindRules[u.type].threat,Math.max(urgent,Math.sqrt(path2)),(q,dx,dy,d2)=>{
+      if(d2<=urgent*urgent)return true;
+      const along=dx*px+dy*py,cross=dx*py-dy*px;
+      return along>0 && along<path2 && cross*cross<=CATCH*CATCH*path2;
+    });
+    if(danger){u.danger=danger;u.dangerUntil=t+.35;}
+    else if(t>=u.dangerUntil || !u.danger || !kindRules[u.type].threat.includes(u.danger.type))u.danger=null;
   }
   function steer(u,angle,speed,dt) {
     const p=u.body.position;
@@ -611,67 +750,75 @@
     return rates.flee*(rates.minimum+(1-rates.minimum)*u.stamina/100);
   }
   let rates={}, boundary='walls';
-  function movement(dt) {
+  function movement(dt,peaceful,gpuMotion) {
+    let offset=0;
     const interval=aiInterval();
-    if(dirtyTrees || (stepNumber-1)%interval===0){decisions=SwarmSimulation.trees(units);dirtyTrees=false;}
+    if(!peaceful && (dirtyTrees || (stepNumber-1)%interval===0)){decisions=SwarmSimulation.trees(units);dirtyTrees=false;}
     rates={rps:rpsSpeed(),wander:wanderSpeed(),flee:fleeSpeed(),zombie:zombieSpeed(),
       boostRange:zombieBoostDistance(),boost:zombieBoostFactor(),minimum:staminaMinSpeed(),drain:staminaDrain(),rest:staminaRest()};
     for(const u of units){
       const invalid=u.target && (!eligible(u,u.target)||u.target.revision!==u.targetVersion);
-      if(invalid||u.sequence%interval===(stepNumber-1)%interval)decide(u);
-      let angle=u.angle,speed=rates.rps;
+      if(!peaceful && (invalid||u.sequence%interval===(stepNumber-1)%interval))decide(u);
+      let angle=u.angle,speed=rates.rps,instantEscape=false;
       if(!senses[u.type].enabled){
         u.target=u.danger=null;speed=0;
-        assignState(u,u.type==='zombie'?'Zi':u.type==='human'?(u.incubation===null?'H':'Hi'):'idle');
+        assignState(u,u.type==='zombie'?(u.aiState==='Zi'?'Zi':'Z'):u.type==='human'?(u.incubation===null?'H':'Hi'):'idle');
       } else if(u.type==='human'){
         const scared=!!u.danger || t<u.fearUntil;
         assignState(u,u.incubation!==null?'Hi':scared?'Hs':'H');
         angle=scared?u.heading:wander(u);speed=scared?scaredSpeed(u,dt):rates.wander;
         if(!scared){u.stamina=Math.min(100,u.stamina+dt*rates.drain*.35);if(t>=u.restingUntil)u.restState=false;}
       } else if(u.type==='zombie'){
+        if(u.biteTarget?.type==='zombie'){u.biteTarget=null;u.attackUntil=0;}
         if(u.target){
           const [dx,dy]=displacement(u,u.target);angle=Math.atan2(dy,dx);
           speed=rates.zombie*(Math.hypot(dx,dy)<=rates.boostRange?rates.boost:1);
-          assignState(u,t<u.attackUntil?'Za':t-u.trackedAt>=config.acquire/1000?'Zc':'Zh');
+          assignState(u,t<u.attackUntil?'Za':'Zc');
         } else if(t<u.attackUntil){assignState(u,'Za');speed=0;}
         else if(t<u.idleUntil){assignState(u,'Zi');speed=0;}
         else {
           if(!u.searchUntil)u.searchUntil=t+config.huntTime/1000;
-          if(t>=u.searchUntil){u.idleUntil=t+rollTime(config.idleMin,config.idleMax);u.searchUntil=0;}
-          assignState(u,u.idleUntil>t?'Zi':'Zh');angle=wander(u);speed=u.aiState==='Zi'?0:rates.zombie*.55;
+          if(t>=u.searchUntil){u.nextWander=t;u.searchUntil=t+config.huntTime/1000;}
+          assignState(u,'Zh');angle=wander(u);speed=rates.zombie*.55;
         }
       } else {
-        const danger=u.danger && kindRules[u.type].threat.includes(u.danger.type) &&
-          Math.hypot(...displacement(u,u.danger))<=config.threat*HEAD ? u.danger:null;
+        const danger=u.danger && kindRules[u.type].threat.includes(u.danger.type)?u.danger:null;
         const other=danger||u.target;
         if(other){const [dx,dy]=displacement(u,other);angle=Math.atan2(dy,dx)+(danger?Math.PI:0);}
         else angle=wander(u);
+        if(danger && Math.cos(angle-u.angle)<0){u.angle=angle;instantEscape=true;}
         assignState(u,danger?'flee':u.target?'pursue':'wander');
       }
-      steer(u,angle,speed,dt);
+      // A new decision can change the predicted heading, and fast wall approaches
+      // use a speed-dependent margin. Resolve those steering changes immediately.
+      const atFastWall=gpuMotion && boundary==='walls' && speed*dt>1 &&
+        Math.min(u.body.position[0]-arena.left,arena.right-u.body.position[0],
+          u.body.position[1]-arena.top,arena.bottom-u.body.position[1])<=RADIUS+speed*dt;
+      if(gpuMotion && !instantEscape && angle===gpuGoals[offset/4] && !atFastWall){
+        u.angle+=gpuMotion[offset];u.body.velocity[0]=gpuMotion[offset+1]*speed;u.body.velocity[1]=gpuMotion[offset+2]*speed;
+        gpuAgents++;
+      }else steer(u,angle,speed,dt);
+      offset+=4;
     }
   }
   function boundsAndRender() {
     const v = arena;
     for (const u of units) {
       const p = u.body.position, velocity = u.body.velocity;
-      if (boundary === 'walls') {
-        if (p[0] < v.left + RADIUS) { p[0] = v.left + RADIUS; velocity[0] = Math.abs(velocity[0]); }
-        if (p[0] > v.right - RADIUS) { p[0] = v.right - RADIUS; velocity[0] = -Math.abs(velocity[0]); }
-        if (p[1] < v.top + RADIUS) { p[1] = v.top + RADIUS; velocity[1] = Math.abs(velocity[1]); }
-        if (p[1] > v.bottom - RADIUS) { p[1] = v.bottom - RADIUS; velocity[1] = -Math.abs(velocity[1]); }
-      } else if (boundary === 'wrap') {
-        const width = v.right - v.left, height = v.bottom - v.top;
-        let moved = false;
-        if (p[0] < v.left) { p[0] += width; moved = true; }
-        else if (p[0] >= v.right) { p[0] -= width; moved = true; }
-        if (p[1] < v.top) { p[1] += height; moved = true; }
-        else if (p[1] >= v.bottom) { p[1] -= height; moved = true; }
-        if (moved) {
-          teleport(u,p[0],p[1]);
-        }
+      u.sweep = null;
+      if (boundary !== 'none' && (p[0] < v.left+RADIUS || p[0] > v.right-RADIUS ||
+          p[1] < v.top+RADIUS || p[1] > v.bottom-RADIUS)) {
+        u.sweep = B.segments(u._stepX, u._stepY, p[0], p[1], v, RADIUS, boundary);
+        // A wrapped endpoint can be an additional diameter from the
+        // entry point on each axis when measured through the torus.
+        const portalGap = boundary === 'wrap' ? Math.SQRT2 * 2 * RADIUS : 0;
+        u.sweepRange = Math.hypot(p[0]-u._stepX, p[1]-u._stepY) + portalGap;
+      }
+      if (B.constrain(p, velocity, v, RADIUS, boundary)) {
+        teleport(u, p[0], p[1]);
       }
       u.body.aabbNeedsUpdate = true;
+      if(!u.holder)continue;
       u.holder.position.set(p[0], p[1]);
       const target = u.angle + u.facingOffset;
       const delta = Math.atan2(Math.sin(target - u.holder.rotation), Math.cos(target - u.holder.rotation));
@@ -683,10 +830,33 @@
   function collisionConversions(dt) {
     index();
     const used=new Set(),changes=[], bites=new Map();
+    const travel = u => u.sweep ? u.sweepRange : Math.hypot(u.body.position[0]-u._stepX,u.body.position[1]-u._stepY);
+    const path = u => u.sweep || [{from:0, until:1, x:u._stepX, y:u._stepY,
+      vx:u.body.position[0]-u._stepX, vy:u.body.position[1]-u._stepY}];
     let maxTravel=0;
-    for(const u of units)maxTravel=Math.max(maxTravel,Math.hypot(u.body.position[0]-u._stepX,u.body.position[1]-u._stepY));
+    for(const u of units) maxTravel=Math.max(maxTravel,travel(u));
+    function interact(a,b,lo,hi) {
+      if(used.has(a)||used.has(b))return;
+      if(isZombieMode()){
+        const h=a.type==='human'?a:b,z=a.type==='zombie'?a:b;
+        if(h.immuneUntil>t || !senses.zombie.enabled)return;
+        const list=bites.get(h)||[];list.push([lo,hi]);bites.set(h,list);
+        z.biteTarget=h;z.idleUntil=0;z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
+      } else {
+        const winner=beats(a.type,b.type)?a:beats(b.type,a.type)?b:null;
+        if(!winner)return;
+        const loser=winner===a?b:a;
+        if(t<loser.immuneUntil)return;
+        changes.push([loser,winner.type]);used.add(a);used.add(b);
+      }
+    }
     function consider(a,b,physical=false){
       if(!a||!b||a===b||a.type===b.type||used.has(a)||used.has(b))return;
+      if (!physical && (a.sweep || b.sweep)) {
+        B.contactSpans(path(a), path(b), CATCH, boundary==='wrap'?arena:null,
+          (lo,hi)=>interact(a,b,lo,hi));
+        return;
+      }
       let dx=a._stepX-b._stepX,dy=a._stepY-b._stepY;
       if(boundary==='wrap'){dx-=Math.round(dx/arena.width)*arena.width;dy-=Math.round(dy/arena.height)*arena.height;}
       const vx=a.body.position[0]-a._stepX-b.body.position[0]+b._stepX;
@@ -701,23 +871,12 @@
           if(lo>hi)return;
         }
       }
-      if(isZombieMode()){
-        const h=a.type==='human'?a:b,z=a.type==='zombie'?a:b;
-        if(h.immuneUntil>t || !senses.zombie.enabled)return;
-        const list=bites.get(h)||[];list.push([lo,hi]);bites.set(h,list);
-        z.attackUntil=t+config.attackHold/1000;assignState(z,'Za');
-      } else {
-        const winner=beats(a.type,b.type)?a:beats(b.type,a.type)?b:null;
-        if(!winner)return;
-        const loser=winner===a?b:a;
-        if(t<loser.immuneUntil)return;
-        changes.push([loser,winner.type]);used.add(a);used.add(b);
-      }
+      interact(a,b,lo,hi);
     }
     for(const [a,b] of physicalPairs.values())consider(a,b,true);
     for(const a of units){
       if(used.has(a) || (isZombieMode()&&a.type==='human'))continue;
-      const range=CATCH+Math.hypot(a.body.position[0]-a._stepX,a.body.position[1]-a._stepY)+maxTravel;
+      const range=CATCH+travel(a)+maxTravel;
       const [x,y]=a.body.position;
       const scan=(cx,cy)=>query(cx,cy,range,b=>{if(isZombieMode()||a.sequence<b.sequence)consider(a,b);});
       scan(x,y);
@@ -755,6 +914,7 @@
       const p = u.body.position;
       const sen=senses[u.type];if(!sen?.fov)continue;
       const distance=sen.sight*HEAD,radius=sen.hearing*HEAD,half=sen.angle*Math.PI/360,padding=Math.max(distance,radius);
+      if (padding*scale < 1) continue;
       if (p[0] < view.left-padding || p[0] > view.right+padding ||
           p[1] < view.top-padding || p[1] > view.bottom+padding) continue;
       const color = u.type === 'zombie' ? ink['vision-zombie'] : u.scared ? ink['vision-scared'] : ink['vision-human'];
@@ -773,18 +933,43 @@
 
   const profile={steps:0,ai:0,physics:0,contacts:0,renderSync:0};
   let impulse=null,profiling=false;
-  function step(dt) {
+  let physicsView=null;
+  world?.on('postBroadphase',({pairs})=>{
+    if(!physicsView)return;
+    const inside=body=>{
+      const [x,y]=body.position,v=body.velocity;
+      return SwarmCircles.crossesView(x,y,x+v[0]*DT,y+v[1]*DT,physicsView,RADIUS);
+    };
+    let write=0;
+    for(let i=0;i<pairs.length;i+=2){
+      if(!inside(pairs[i]) && !inside(pairs[i+1]))continue;
+      pairs[write++]=pairs[i];pairs[write++]=pairs[i+1];
+    }
+    pairs.length=write;
+  });
+  function step(dt,gpuMotion=null) {
     stepNumber++;
     const start=profiling?performance.now():0;
-    movement(dt);
+    const peaceful=isZombieMode() && !seeded;
+    movement(dt,peaceful,gpuMotion);
     if(impulse){units[0].body.velocity[0]=impulse[0];units[1].body.velocity[0]=impulse[1];impulse=null;}
     const brainEnd=profiling?performance.now():0;
     for(const u of units){u._stepX=u.body.position[0];u._stepY=u.body.position[1];}
-    world.step(dt);
+    physicsView=$('offscreenPhysics').checked?null:visibleWorld();
+    if (solver==='p2') world.step(dt);
+    else {
+      physicalPairs.clear();
+      for(const u of units)u.pairKeys?.clear();
+      SwarmCircles.step(units,dt,RADIUS,(a,b)=>{
+        const k=contactKey(a,b);physicalPairs.set(k,[a,b]);
+        (a.pairKeys??=new Set()).add(k);(b.pairKeys??=new Set()).add(k);
+      },physicsView);
+    }
     const physicsEnd=profiling?performance.now():0;
     boundsAndRender();
     const renderEnd=profiling?performance.now():0;
-    collisionConversions(dt);testWinner();
+    if(!peaceful)collisionConversions(dt);
+    testWinner();
     if(profiling){profile.steps++;profile.ai+=brainEnd-start;profile.physics+=physicsEnd-brainEnd;profile.renderSync+=renderEnd-physicsEnd;profile.contacts+=performance.now()-renderEnd;}
   }
   // === INPUT: one coordinate system for mouse, touch, and focus selection ===
@@ -818,13 +1003,14 @@
   }
   let lastInputWorld = null;
   function paint(point, spray = false) {
-    const { closest, at } = nearestAt(point);
+    const burstPaint=!focusArmed && (spray || $('massSpawn').checked);
+    const {closest,at}=burstPaint?{closest:null,at:pointerWorld(point)}:nearestAt(point);
     lastInputWorld = at;
     if (focusArmed) {
       if (closest) setFocus(closest);
       return;
     }
-    if (!brush || preparing || retired.length) return;
+    if (!arena || !brush || preparing || retired.length) return;
     if(Math.max(Math.abs(at.x),Math.abs(at.y))>RADIUS*2**21){notice('Outside the precision range for placement.');return;}
     if(boundary!=='none' && (!closest||spray) && (at.x<arena.left || at.x>arena.right || at.y<arena.top || at.y>arena.bottom)){
       notice('Place creatures inside the arena.');return;
@@ -838,14 +1024,14 @@
     const now = performance.now();
     if (spray && now - lastPaint < Number($('spawnRate').value)) return;
     lastPaint = now;
-    if (spray) {
+    if (burstPaint) {
       const burst = Math.max(1, Math.min(250, Number($('spawnBurst').value) || 1));
       const spread = Number($('spawnSpread').value) * HEAD;
       for (let i = 0; i < burst && units.length < maxCreatures; i++) {
-        const angle = Math.random() * TAU;
+        const angle = random() * TAU;
         // A hyper-fast brush must not put hundreds of physics circles at the
         // identical spot: gently scatter around the exact cursor center.
-        const radius = Math.sqrt(Math.random()) * Math.max(spread, burst > 1 ? HEAD * .55 : 0);
+        const radius = Math.sqrt(random()) * Math.max(spread, burst > 1 ? HEAD * .55 : 0);
         place(at.x+Math.cos(angle)*radius,at.y+Math.sin(angle)*radius);
       }
       if (isZombieMode() && brush === 'zombie') startOutbreak();
@@ -861,9 +1047,7 @@
     if (state === 'finished') { $('result').classList.remove('show'); setState('paused'); }
     update(true); drawVision();
   }
-  // p2 stores positions in Float32. Keep a viewport span below 2^21 radii
-  // so world-point placement retains several representable increments per radius.
-  const safeMinZoom=()=>Math.max(MIN_ZOOM,Math.max(innerWidth,innerHeight)/(2**21*RADIUS));
+  const safeMinZoom=()=>SwarmCamera.minZoom(innerWidth,innerHeight,get('grid.referenceMeters')/20);
   const clampZoom=value=>Math.min(MAX_ZOOM,Math.max(safeMinZoom(),value));
   function pinchStart(pair){
     if(!pair)return null;
@@ -876,7 +1060,7 @@
     scale=clampZoom(start.zoom*pair.distance/start.distance);
     camera.scale.set(scale);camera.position.set(at.x-start.wx*scale,at.y-start.wy*scale);
     $('zoomLabel').textContent=Number((scale*100).toPrecision(4))+'%';
-    redraw();drawVision();saveCamera();
+    saveCamera();redraw();drawVision();
   }
   function setScaleAt(clientX, clientY, multiplier) {
     // Zoom about the pointer; keep the world point at the same screen point.
@@ -887,13 +1071,13 @@
     camera.scale.set(scale);
     camera.position.set(at.x - wx * scale, at.y - wy * scale);
     $('zoomLabel').textContent = (scale*100>=1?(scale*100).toFixed(0):(scale*100).toPrecision(2)) + '%';
-    redraw(); drawVision(); saveCamera();
+    saveCamera(); redraw(); drawVision();
   }
   function cameraPan(cssDX, cssDY) {
     const rect = app.canvas.getBoundingClientRect();
     camera.x += cssDX * app.screen.width / Math.max(1, rect.width);
     camera.y += cssDY * app.screen.height / Math.max(1, rect.height);
-    redraw(); drawVision(); saveCamera();
+    saveCamera(); redraw(); drawVision();
   }
 
   // Touch events are the primary mobile input path. This works on mobile
@@ -1091,6 +1275,67 @@
     setScaleAt(event.clientX, event.clientY, Math.exp(-event.deltaY * .0012));
   }, { passive: false });
 
+  function movementBackend(){
+    const choice=$('movementBackend').value;
+    if(choice!==gpuChoice){
+      gpuChoice=choice;motionEpoch++;gpuFailure='';
+      if(choice==='cpu'){gpuDevice?.dispose();gpuDevice=null;}
+    }
+    let status='CPU movement';
+    if(choice==='gpu'){
+      if(gpuFailure)status+=' · '+gpuFailure;
+      else if(!gpuDevice){
+        status+=' · starting WebGPU';
+        if(!gpuOpening){
+          gpuOpening=true;
+          SwarmSteeringGPU.open(reason=>{gpuFailure=reason;gpuDevice=null;motionEpoch++;})
+            .then(engine=>{if(gpuChoice==='gpu')gpuDevice=engine;else engine.dispose();})
+            .catch(err=>{gpuFailure=err.message;}).finally(()=>{gpuOpening=false;});
+        }
+      }else status='GPU steering · CPU decisions and collisions';
+    }
+    if($('movementStatus').textContent!==status)$('movementStatus').textContent=status;
+    return choice==='gpu'?gpuDevice:null;
+  }
+  function predictHeading(u){
+    if(!senses[u.type].enabled)return u.angle;
+    if(u.type==='human')return u.danger || t+DT<u.fearUntil?u.heading:u.wanderHeading;
+    if(u.type==='zombie'){
+      if(!u.target)return t+DT<u.attackUntil || t+DT<u.idleUntil?u.angle:u.wanderHeading;
+      const [dx,dy]=displacement(u,u.target);
+      return Math.atan2(dy,dx);
+    }
+    if(u.danger && kindRules[u.type].threat.includes(u.danger.type)){
+      const [dx,dy]=displacement(u,u.danger);
+      return Math.atan2(dy,dx)+Math.PI;
+    }
+    if(!u.target)return u.wanderHeading;
+    const [dx,dy]=displacement(u,u.target);
+    return Math.atan2(dy,dx);
+  }
+  async function advanceGPU(engine,deadline){
+    gpuPending=true;
+    try{
+      do{
+        const version=motionEpoch,n=units.length, before=t;
+        if(!n)return;
+        if(gpuInput.length<4*n){gpuInput=new Float32Array(4*n);gpuGoals=new Float64Array(n);}
+        const cx=(arena.left+arena.right)/2,cy=(arena.top+arena.bottom)/2;
+        for(let i=0;i<n;i++){
+          const u=units[i],p=u.body.position,j=i*4;
+          gpuInput[j]=p[0]-cx;gpuInput[j+1]=p[1]-cy;
+          gpuGoals[i]=predictHeading(u);gpuInput[j+2]=u.angle;gpuInput[j+3]=gpuGoals[i];
+        }
+        const data=await engine.calculate(gpuInput,n,[arena.width/2,arena.height/2,
+          RADIUS+1,config.turnRate*Math.PI/180*DT],boundary==='walls');
+        // Input, a new round, or patient zero can arrive while the buffer is mapped.
+        if(version!==motionEpoch || engine!==gpuDevice || before!==t || state!=='running')return;
+        t+=DT;step(DT,data);accumulator-=DT;gpuSteps++;
+      }while(accumulator+1e-9>=DT && performance.now()<deadline);
+    }catch(err){
+      if(engine===gpuDevice){gpuFailure=err.message;gpuDevice=null;engine.dispose();}
+    }finally{gpuPending=false;}
+  }
   app.ticker.add(tick => {
     if (leftDown && brush && !focusArmed && lastLeftPoint &&
         performance.now() - leftDownAt > 240 &&
@@ -1113,20 +1358,27 @@
       const p=pointerSession.lastPoint;
       paint({clientX:p.x,clientY:p.y},true);
     }
+    const engine=movementBackend();
     if (state === 'running') {
-      accumulator=Math.min(accumulator+Math.min(tick.deltaMS/1000,.15)*Number($('speed').value),DT*config.maxSteps);
-      const deadline=performance.now()+config.frameBudget;
-      while(accumulator+1e-9>=DT && state==='running'){
+      const speed=Number($('speed').value);
+      accumulator=Math.min(accumulator+Math.min(tick.elapsedMS/1000,.15)*speed,DT*config.maxSteps);
+      // Fast-forward can spend more of a frame on complete fixed steps.
+      const budget=Math.max(config.frameBudget,Math.min(60,config.frameBudget*speed));
+      const deadline=performance.now()+budget;
+      if(engine){
+        if(!gpuPending && accumulator+1e-9>=DT)void advanceGPU(engine,deadline);
+      }else while(accumulator+1e-9>=DT && state==='running'){
         t+=DT;step(DT);accumulator-=DT;
         if(performance.now()>=deadline){accumulator=Math.min(DT,accumulator);break;}
       }
+      if(state==='running')showPlaybackRate();
       if(t-lastVisionDraw>=.1){lastVisionDraw=t;drawVision();}
       update();
     }
     if (focusedUnit) {
       centerOnFocus();
       $('focusStatus').textContent = ' · Following ' +
-        (get(modeKey('inspect'))?focusedUnit.type+' #'+focusedUnit.sequence+' · '+focusedUnit.aiState+' · target '+(focusedUnit.target?.sequence??'—')+' · '+(senses[focusedUnit.type].fov?'limited FOV':'360° unlimited')+' · brain '+((aiInterval()+focusedUnit.sequence-(stepNumber%aiInterval()))%aiInterval()*DT).toFixed(2)+' s · idle '+Math.max(0,focusedUnit.idleUntil-t).toFixed(1)+' s · fear '+Math.max(0,focusedUnit.fearUntil-t).toFixed(1)+' s · exposure '+Math.round(focusedUnit.exposure)+' ms · incubation '+(focusedUnit.incubation===null?'—':Math.ceil(focusedUnit.incubation)+' ms'):focusedUnit.type);
+        (get(modeKey('inspect'))?focusedUnit.type+' #'+focusedUnit.sequence+' · '+(V.stateLabels[focusedUnit.aiState]||focusedUnit.aiState)+' · target '+(focusedUnit.target?.sequence??'—')+' · '+(senses[focusedUnit.type].fov?'limited FOV':'360° unlimited')+' · brain '+((aiInterval()+focusedUnit.sequence-(stepNumber%aiInterval()))%aiInterval()*DT).toFixed(2)+' s · idle '+Math.max(0,focusedUnit.idleUntil-t).toFixed(1)+' s · fear '+Math.max(0,focusedUnit.fearUntil-t).toFixed(1)+' s · exposure '+Math.round(focusedUnit.exposure)+' ms · incubation '+(focusedUnit.incubation===null?'—':Math.ceil(focusedUnit.incubation)+' ms'):focusedUnit.type);
     }
     drawCrosshairs();
   });
@@ -1137,18 +1389,19 @@
     window.__swarmInputDebug = {
       scenario:items=>{
         ++generation;preparing=false;clear();nextSequence=0;stepNumber=0;t=0;accumulator=0;
-        for(const [kind,x,y,angle=0] of items){const u=add(kind,x,y);u.angle=u.heading=u.wanderHeading=angle;}
+        for(const [kind,x,y,angle=0] of items){const u=add(kind,x-origin.x,y-origin.y);u.angle=u.heading=u.wanderHeading=angle;}
         seeded=isZombieMode()&&items.some(([kind])=>kind==='zombie');outbreakAt=seeded?0:null;
         setState('paused');update(true);
       },
-      move:(i,x,y)=>teleport(units[i],x,y),
+      move:(i,x,y)=>teleport(units[i],x-origin.x,y-origin.y),
+      appearance:i=>({tint:units[i].sprite?.tint,marker:units[i].aiState==='Hi'?infectedYellow:COLORS[units[i].type]}),
       profile:enabled=>{profiling=!!enabled;return {...profile,buildMs:lastBuildMs};},
-      round:()=>({roundSeed,preparing,arena,count:units.length,state,t,activePairs:physicalPairs.size,bodies:world.bodies.length,retired:retired.length}),
+      round:()=>({gpuSteps,gpuAgents,roundSeed,preparing,origin:{...origin},arena:SwarmCamera.translate(arena,origin.x,origin.y),outer:SwarmCamera.translate(outer,origin.x,origin.y),radius:RADIUS,count:units.length,state,t,activePairs:physicalPairs.size,solver,bodies:solver==='p2'?world.bodies.length:units.length,retired:retired.length}),
 
       pointerWorld: (x, y) => pointerWorld({ clientX:x, clientY:y }),
       screenPoint, zoom: () => scale,
-      camera: () => ({x:camera.x,y:camera.y}),
-      units: () => units.map(u => ({id:u.sequence,ai:u.aiState,target:u.target?.sequence,exposure:u.exposure,incubation:u.incubation,type:u.type,x:u.body.position[0],y:u.body.position[1],
+      camera: () => ({x:camera.x-origin.x*scale,y:camera.y-origin.y*scale}),
+      units: () => units.map(u => ({id:u.sequence,ai:u.aiState,target:u.target?.sequence,exposure:u.exposure,incubation:u.incubation,type:u.type,x:origin.x+u.body.position[0],y:origin.y+u.body.position[1],
         stamina:u.stamina,resting:u.restState,vx:u.body.velocity[0],vy:u.body.velocity[1]})),
       lastPlaced: () => lastInputWorld,
       time: () => t,
@@ -1180,6 +1433,46 @@
   }
   $('run').onclick = run;
   $('startBig').onclick = run;
+  $('resizeArena').onclick = () => {
+    try {
+      if (preparing) throw Error('Wait for the round to finish preparing before resizing.');
+      const view = visibleWorld();
+      const nextOuter = B.rectangle(view.left, view.top, view.right, view.bottom);
+      const nextArea = B.geometry(nextOuter,boundary,wallThickness,RADIUS);
+      // Only a physical arena must fit the local p2 precision budget.
+      const spanLimit=2**21*RADIUS;
+      if (boundary !== 'none' && Math.max(nextArea.width,nextArea.height)>spanLimit)
+        throw Error('Resize cancelled. Zoom in to fit the active physics precision range.');
+      const moves = SwarmResize(units,arena,nextArea,RADIUS,boundary);
+      const shiftX = boundary!=='none' && Math.max(Math.abs(view.left),Math.abs(view.right))>spanLimit
+        ? Math.round((view.left+view.right)/2) : 0;
+      const shiftY = boundary!=='none' && Math.max(Math.abs(view.top),Math.abs(view.bottom))>spanLimit
+        ? Math.round((view.top+view.bottom)/2) : 0;
+      outer = SwarmCamera.translate(nextOuter,-shiftX,-shiftY);
+      arena = SwarmCamera.translate(nextArea,-shiftX,-shiftY);
+      const moved = new Set();
+      for (const {agent,x,y} of moves) {
+        teleport(agent,x-shiftX,y-shiftY);
+        agent.immuneUntil = t + immunitySeconds();
+        agent.sweep = null;
+        moved.add(agent);
+      }
+      if (shiftX || shiftY) {
+        for (const u of units) if (!moved.has(u))
+          teleport(u,u.body.position[0]-shiftX,u.body.position[1]-shiftY);
+        origin.x+=shiftX;origin.y+=shiftY;
+        camera.position.set(camera.x+shiftX*scale,camera.y+shiftY*scale);
+      }
+      if (boundary !== 'none') {
+        dirtyTrees = true;
+        for (const u of units) { u.target=null; u.danger=null; }
+        index();
+      }
+      redraw();drawVision();drawCrosshairs();
+      rememberWalls();
+      notice('Arena resized to view · '+moves.length+' relocated.');
+    } catch (error) { notice(error.message); }
+  };
   $('reset').onclick = reset;
   $('again').onclick = reset;
   $('fit').onclick = () => { setFocus(null); fit(); saveCamera(); };
@@ -1190,14 +1483,16 @@
     S.setSetting('game.mode',$('mode').value,'game');
     enterMode();
   };
-  $('boundaryMode').onchange = () => { boundary=$('boundaryMode').value;if(boundary!=='none')rescue(); redraw(); drawVision(); };
+  $('boundaryMode').oninput = $('boundaryMode').onchange = updateBoundary;
+  $('wallWidth').oninput = $('wallWidth').onchange = updateBoundary;
   $('showBounds').onchange=()=>units.forEach(outline);
   $('markerThreshold').oninput = () => {
     $('markerThresholdValue').textContent=$('markerThreshold').value+' px';drawCrosshairs();
   };
   $('showFov').onchange = drawVision;
   $('showHearing').onchange = drawVision;
-  $('speed').oninput = () => { $('speedValue').textContent = $('speed').value + '×'; };
+  $('movementBackend').oninput=movementBackend;
+  $('speed').oninput = () => { $('speedValue').textContent = $('speed').value + '×'; resetPlaybackRate(); };
   $('headsAcross').oninput = () => {
     $('headsAcrossValue').textContent = $('headsAcross').value;
     resizeCreatures();
@@ -1207,8 +1502,8 @@
     ['wanderSpeed',''],['fleeSpeed',''],['zombieSpeed',''],
     ['staminaStart','%'],['staminaDrain','%/s'],['staminaRest','s'],['staminaMinSpeed','%'],
     ['zombieBoostRange',' heads'],['zombieBoostFactor','×'],['aiInterval',' frames'],
-    ['spawnBurst','/tick'],
-    ['fixationMin','s'],['fixationMax','s'],['spawnRate','ms'],['spawnSpread',' heads']
+    ['spawnBurst','/burst'],
+    ['spawnRate','ms'],['spawnSpread',' heads']
   ]) $(id).oninput = () => { $(id + 'Value').textContent = $(id).value + suffix; };
   for (const [panel, id] of [['statsPanel','statsOpacity'],['spawnPanel','spawnOpacity']]) {
     const slider = $(id);
@@ -1244,7 +1539,7 @@
   });
   window.addEventListener('resize', () => {
     app.renderer.resize(innerWidth, innerHeight);
-    resizeCreatures(); redraw(); drawVision();
+    redraw(); drawVision();
   });
   $('saveResult').onclick = () => {
     const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 620;
@@ -1272,9 +1567,18 @@
     img.src = T.icon(actual);
   };
 
-  function saveCamera() { S.setSetting(modeKey('camera'),{x:camera.x,y:camera.y,zoom:scale},'game'); }
+  function saveCamera() {
+    // Limit camera travel where doubles can still distinguish a creature.
+    const limit = 2*SwarmCamera.halfMeters/(get('grid.referenceMeters')/20);
+    const x=B.clamp(camera.x-origin.x*scale,-limit*scale,limit*scale);
+    const y=B.clamp(camera.y-origin.y*scale,-limit*scale,limit*scale);
+    if (Math.abs(camera.x-origin.x*scale)>limit*scale || Math.abs(camera.y-origin.y*scale)>limit*scale)
+      camera.position.set(x+origin.x*scale,y+origin.y*scale);
+    S.setSetting(modeKey('camera'),{x,y,zoom:scale},'game');
+  }
   function restoreCamera() {
-    const c=get(modeKey('camera'));scale=clampZoom(c.zoom);camera.scale.set(scale);camera.position.set(c.x,c.y);
+    const c=get(modeKey('camera'));scale=clampZoom(c.zoom);camera.scale.set(scale);const limit=2*SwarmCamera.halfMeters/(get('grid.referenceMeters')/20)*scale;
+    camera.position.set(B.clamp(c.x,-limit,limit)+origin.x*scale,B.clamp(c.y,-limit,limit)+origin.y*scale);
     $('zoomLabel').textContent=Number((scale*100).toPrecision(4))+'%';
   }
   function applyPanels() {
@@ -1285,7 +1589,7 @@
   }
   function enterMode() {
     mode=get('game.mode');readColors();S.restoreControls(mode);HEAD=calculatedHead();RADIUS=HEAD*.44;CATCH=2*RADIUS+Math.max(1,HEAD*.05);restoreCamera();reset();
-    for(const el of S.controls) el.oninput?.();
+    for(const el of S.controls) if(el.id!=='wallWidth' && el.id!=='boundaryMode')el.oninput?.();
     $('survivalTime').disabled=unlimitedOutbreak();
     applyPanels();V.syncHUD(mode);redraw();
   }
@@ -1293,7 +1597,7 @@
     const save=()=>{
       const path=S.pathFor(el,mode), value=S.valueOf(el);
       if(S.schema.get(path).valid(value)) S.setSetting(path,value,'game');
-      if(el.id==='wallWidth' || el.id==='boundaryMode') {V.syncHUD(mode);redraw();}
+      if(el.id==='borderStyle') {V.syncHUD(mode);redraw();}
     };
     el.addEventListener('input',save);el.addEventListener('change',()=>{save();const path=S.pathFor(el,mode);if(!S.schema.get(path).valid(S.valueOf(el)))el.value=get(path);S.flush();});
   }
@@ -1322,6 +1626,7 @@
   }
   S.subscribe((paths,source)=>{
     if(!paths.length)return;
+    motionEpoch++;
     if(paths.some(p=>p.startsWith(modeKey('ai.'))||Object.hasOwn(config,p.slice(modeKey('').length))))refreshConfig();
     if(source==='game')return;
     if(paths.includes('theme.id'))serialized(switchTheme);

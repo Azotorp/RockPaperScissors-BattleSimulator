@@ -95,7 +95,11 @@
     function search(node,ox,oy,type) {
       if(!node)return;
       const dx=node.x-ox,dy=node.y-oy,d2=dx*dx+dy*dy;
-      if(node.u!==u && d2<=bestD2 && node.u.type===type && accept(node.u,dx,dy,d2) &&
+      // Perception and subsequent steering must use the same toroidal image.
+      // Match displacement()'s half-span tie toward the negative axis.
+      const nearestImage = !wrap || (dx >= -wrap.width/2 && dx < wrap.width/2 &&
+                                      dy >= -wrap.height/2 && dy < wrap.height/2);
+      if(nearestImage && node.u!==u && d2<=bestD2 && node.u.type===type && accept(node.u,dx,dy,d2) &&
          (d2<bestD2 || !best || node.u.sequence<best.sequence)) {best=node.u;bestD2=d2;}
       const delta=node.axis==='x'?dx:dy;
       search(delta>0?node.left:node.right,ox,oy,type);

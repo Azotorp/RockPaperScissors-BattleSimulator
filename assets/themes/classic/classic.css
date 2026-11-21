@@ -36,7 +36,7 @@
 :root {
   --ground:#101d30; --grid-minor:#243348; --grid-major:#374d68; --grid-axis:#597598;
   --grid-text:#99abc2; --grid-font:11px ui-monospace,monospace; --grid-spacing:100; --grid-width:1;
-  --wall-light:#96b0ce; --wall-dark:#27394e; --wrap-x:#52b8ff; --wrap-y:#ffad62;
+  --wall-light:#96b0ce; --wall-dark:#27394e; --wrap-x:#ff941f; --wrap-y:#299eff;
   --window:#132237; --window-deep:#0d1b2c; --window-line:#3d536d; --window-text:#edf3ff;
   --window-muted:#a6b9cf; --accent:#98c9ff; --focus:#a9d8ff; --danger:#ffb0a6;
   --window-font:Inter,system-ui,sans-serif; --corner:14px; --pad:16px;

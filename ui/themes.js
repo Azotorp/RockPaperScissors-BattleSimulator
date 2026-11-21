@@ -26,10 +26,23 @@ window.SwarmThemes = (() => {
     if (!cache.has(url)) cache.set(url, PIXI.Assets.load(url).catch(err => {cache.delete(url); throw err;}));
     return cache.get(url);
   }
+  const infectionFrames=new WeakMap();
+  function infectionBase(texture){
+    if(infectionFrames.has(texture))return infectionFrames.get(texture);
+    const source=texture.source.resource;
+    if(!source?.width || !source.height)return texture;
+    // A neutral base lets the sprite tint stay yellow over the original warm skin.
+    const canvas=document.createElement('canvas');canvas.width=source.width;canvas.height=source.height;
+    const context=canvas.getContext('2d');context.filter='grayscale(1) brightness(1.22)';
+    context.drawImage(source,0,0);
+    const neutral=PIXI.Texture.from(canvas);infectionFrames.set(texture,neutral);
+    return neutral;
+  }
   async function prepare(theme, id) {
     for (const appearance of candidates(theme,null,id)) {
       try {
-        return {...appearance, textures:await Promise.all(appearance.frames.map(texture))};
+        const frames=await Promise.all(appearance.frames.map(texture));
+        return {...appearance,textures:id==='Hi'?frames.map(infectionBase):frames};
       } catch (error) { console.warn('Swarm appearance unavailable', id, error); }
     }
     return {...placeholder, textures:[PIXI.Texture.WHITE]};

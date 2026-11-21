@@ -33,6 +33,9 @@ window.SwarmWindow = (() => {
   }
   function interfacePage() {
     const general=group('Appearance');
+    field(general,'Other overlay background transparency','hud.backgroundTransparency','range',{lo:0,hi:100,suffix:'%'});
+    button('Move overlays',()=>{dialog.close();SwarmOverlayLayout.edit();},general).className='move-overlays';
+    button('Reset overlay positions',()=>SwarmOverlayLayout.reset(),general);
     field(general,'Theme','theme.id',null,{choices:Object.fromEntries(Object.values(T.registry).map(t=>[t.id,t.displayName]))});
     if(mode()!=='zombie'){
       field(general,'Show rules diagram',per('diagram'),'checkbox');
@@ -67,17 +70,18 @@ window.SwarmWindow = (() => {
     for(const id of ['H','Hs','Hi','Z','Zi','Zh','Zc','Za','R','P','Sc','L','Sp']) {
       const f=element('figure',null,gallery), img=element('img',null,f);
       img.src=T.icon(id);img.alt=V.stateLabels[id] || Object.keys(T.codes).find(k=>T.codes[k]===id) || id;
-      element('figcaption',id+' · '+img.alt,f);
+      img.dataset.state=id;element('figcaption',img.alt,f);
     }
     const sample=group('Outbreak legend preview');
     const values=Object.fromEntries(Object.keys(V.stateLabels).map((id,i)=>[id,i+1]));
-    const items=element('div',null,sample);items.className='state-items';V.stateList(items,values,true);
+    const items=element('div',null,sample);items.className='state-items';V.stateList(items,values);
   }
   const friendly=p=>p.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('.',' › ');
   function dataPage() {
     const {available,warning,savedKeys}=S.status(), cats=[...new Set(savedKeys.map(p=>p.split('.')[0]))];
     element('p',(available?'Browser storage available':'Memory-only settings')+' · Schema '+S.version,body);
     if(warning) element('p',warning,body);
+    element('p','Storage namespace: '+S.key,body);
     element('p','Saved categories: '+(cats.join(', ')||'none')+'. Settings stay in this browser profile on this site. Clearing site data can erase them.',body);
     const groups=new Map();
     for (const path of [...S.schema.keys()].sort()) {
@@ -90,12 +94,12 @@ window.SwarmWindow = (() => {
         groups.set(category,list);
       }
       const v=S.getSetting(path);element('dt',friendly(path.slice(category.length+1)),groups.get(category));
-      element('dd',v===null?'None':typeof v==='object'?Object.entries(v).map(([k,n])=>k+' '+Number(n.toPrecision(6))).join(', '):String(v),groups.get(category));
+      element('dd',v===null?'None':typeof v==='object'?JSON.stringify(v):String(v),groups.get(category));
     }
     const actions=element('div',null,body);actions.className='data-actions';
     button('Export settings',()=>{
       const url=URL.createObjectURL(new Blob([S.exportSettings()],{type:'application/json'}));
-      const a=element('a',null);a.href=url;a.download='swarm-arena-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      const a=element('a',null);a.href=url;a.download='default.config.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     },actions);
     const file=element('input',null,body);file.type='file';file.accept='.json,application/json';file.hidden=true;
     button('Import settings',()=>file.click(),actions);
@@ -112,9 +116,9 @@ window.SwarmWindow = (() => {
     'Movement':['rpsSpeed','headsAcross'],
     'Perception':['showFov','showHearing'],
     'Human fear':['wanderSpeed','fleeSpeed','staminaStart','staminaDrain','staminaMinSpeed','staminaRest'],
-    'Zombie states':['zombieSpeed','zombieBoostRange','zombieBoostFactor','fixationMin','fixationMax'],
+    'Zombie states':['zombieSpeed','zombieBoostRange','zombieBoostFactor'],
     'Physics':['aiInterval','showBounds'],
-    'Spawning':['spawnExtent','spawnRate','spawnBurst','spawnSpread']
+    'Spawning':['spawnExtent']
   };
   for(const id of Object.values(sections).flat()){
     const node=document.getElementById(id),row=node.closest('.row');
@@ -138,6 +142,12 @@ window.SwarmWindow = (() => {
     if(name==='General'){
       field(g,'Game mode','game.mode',null,{choices:{3:'Classic',5:'Lizard–Spock',zombie:'Zombie Outbreak'}});
       field(g,'Focused creature inspector',per('inspect'),'checkbox');
+      const build=window.SwarmBuild;
+      const info=group('Development build');
+      element('p','Version v'+build.version+' · Channel '+build.channel.toUpperCase(),info);
+      element('p','Based on source commit '+build.baseCommit.slice(0,12)+' · '+build.releaseDate,info);
+      element('p',build.notes,info);
+      element('p','Development preferences are separate from the live game.',info);
     }else if(name==='Camera'){
       element('p','Drag with two fingers to pan. Spread to zoom in. Your pan and zoom are saved for this mode.',g);
       button('Fit view',()=>document.getElementById('fit').click(),g);
@@ -156,10 +166,14 @@ window.SwarmWindow = (() => {
       field(g,'Fixed seed',per('seed'),'text');
       field(g,'Distribution',per('distribution'),null,{choices:{jitter:'Evenly spaced with jitter',grid:'Uniform grid'}});
       specs(g,SwarmOptions.spawning);
-      if(outbreak)field(g,'Starting zombies',per('initialZombies'),'number',{lo:0,hi:15000});
+      field(g,'Mass spawn on click or tap',per('massSpawn'),'checkbox');
+      field(g,'Creatures per burst',per('spawnBurst'),'range',{lo:1,hi:250,step:1});
+      field(g,'Spawn interval',per('spawnRate'),'range',{lo:0,hi:600,step:5,suffix:' ms'});
+      field(g,'Spawn spread',per('spawnSpread'),'range',{lo:0,hi:4,step:.25,suffix:' heads'});
+      if(outbreak)field(g,'Starting zombies',per('initialZombies'),'number',{lo:0,hi:999999});
       else {
         const mix=group('Initial counts · −1 uses the shared population');
-        for(const kind of ['rock','paper','scissors','lizard','spock'].slice(0,Number(mode())))field(mix,kind,per('count.'+kind),'number',{lo:-1,hi:15000});
+        for(const kind of ['rock','paper','scissors','lizard','spock'].slice(0,Number(mode())))field(mix,kind,per('count.'+kind),'number',{lo:-1,hi:999999});
       }
       const seed=window.SwarmRound?.seed??'';
       const line=element('p','Current round seed · '+seed,g);
@@ -171,8 +185,9 @@ window.SwarmWindow = (() => {
     else if(name==='Human fear'){
       field(g,'Spread fear to nearby humans',per('spreadFear'),'checkbox');specs(g,SwarmOptions.outbreak.slice(0,2));
     }else if(name==='Zombie states'){
-      field(g,'Detection interrupts idle',per('idleInterrupt'),'checkbox');specs(g,SwarmOptions.outbreak.slice(2,7));
-    }else if(name==='Infection')specs(g,SwarmOptions.outbreak.slice(7));
+      specs(g,SwarmOptions.outbreak.slice(2,6));
+      element('p','A new zombie wakes when it detects a human or sees an active zombie. It hunts until it finds a human to chase or bite.',g);
+    }else if(name==='Infection')specs(g,SwarmOptions.outbreak.slice(6));
     const controls=[...body.querySelectorAll('input,select')];
     if(controls.some(el=>el.dataset.path||el.id))button('Reset this section',()=>{
       if(!confirm('Restore '+name+' settings for this mode?'))return;

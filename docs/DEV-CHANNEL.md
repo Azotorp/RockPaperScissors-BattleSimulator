@@ -4,10 +4,10 @@
 
 | Location | Channel | Version | Policy |
 |---|---|---|---|
-| `/` | Stable | Phase 2 baseline (designated v0.2.0) | Do not modify during v0.3 development |
-| `/dev/` | Development | `0.3.0-dev.1` | Independent code, assets, settings and experiments |
+| `/` | Stable | v0.3.0 | Promoted from dev.9 on November 20, 2026; pause feature development |
+| `/dev/` | Frozen development snapshot | `0.3.0-dev.9` | Preserved intact for comparison and future experiments |
 
-The files in `dev/` are a complete deployable copy of the Phase 2 build. No new GPU or boundary features are implemented by this channel bootstrap. It is the starting point for the upcoming work order.
+The files in `dev/` remain a self-contained development build, retained as an archive following v0.3.0 promotion. Production now includes the swarm CPU / GPU movement experiments and newer boundary, spawn, and UI features. New gameplay work is paused here.
 
 ## Version scheme
 
@@ -26,7 +26,7 @@ Do not auto-copy or auto-migrate settings between channels. Each can export/impo
 
 ## Deployment
 
-The existing `.cpanel.yml` copies production files as before and additionally copies the self-contained `dev/` folder into `$HOME/public_html/rockpaperscissors/dev/`, provided the parent deployment path is the expected existing symlink. If the hosting deployment is not triggered automatically from GitHub, update/pull the repository in cPanel and deploy the checked-out revision.
+The existing `.cpanel.yml` copies the promoted production files, including `build.js`, `default.config.json`, and `lab/`, and also copies the self-contained `dev/` folder into `$HOME/public_html/rockpaperscissors/dev/`, provided the parent deployment path is the expected existing symlink. If the hosting deployment is not triggered automatically from GitHub, update/pull the repository in cPanel and deploy the checked-out revision.
 
 Local test:
 
@@ -36,3 +36,10 @@ python3 -m http.server 8080
 ```
 
 Verify both versions load assets locally; compare settings storage keys; ensure changing the dev game does not affect root settings. The development channel intentionally remains on the original CPU/p2.js simulator until the dedicated GPU work order is implemented and benchmarked.
+
+## Production promotion v0.3.0
+
+- Source baseline commit: `d911a6e512bb939ac147399e0a0950b62623b32f` (`0.3.0-dev.9`).
+- Prior production branch: `backup/live-v0.2.0-before-v0.3.0`.
+- Production uses `swarmArena.preferences`, not `swarmArena.dev.preferences`.
+- Confirm cPanel deploys the latest `main` commit before treating the public site as updated.
